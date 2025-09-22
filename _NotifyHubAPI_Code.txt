@@ -1,0 +1,2289 @@
+# NotifyHubAPI - 邮件通知API服务
+## 项目概述
+独立的邮件通知API服务，基于ASP.NET Core Web API开发
+为多个项目提供统一的邮件发送功能，支持多租户、重试机制、状态跟踪等功能
+
+## 文件索引
+
+### 根目录
+- GlobalUsings.cs (730 B)
+- NotifyHubAPI.csproj (2.1 KB)
+- Program.cs (8.7 KB)
+- appsettings.Development.json (313 B)
+- appsettings.Production.json (3.5 KB)
+- appsettings.json (2.5 KB)
+
+### BackgroundServices
+- BackgroundServices\EmailRetryBackgroundService.cs (5.2 KB)
+
+### Controllers
+- Controllers\EmailController.cs (11.8 KB)
+
+### Data
+- Data\NotificationDbContext.cs (2.2 KB)
+
+### Middleware
+- Middleware\ApiKeyMiddleware.cs (7.1 KB)
+
+### Models
+- Models\ApiResponse.cs (1.2 KB)
+- Models\EmailRecord.cs (1.7 KB)
+- Models\EmailRequest.cs (1.5 KB)
+
+### Services
+- Services\ApiKeyService.cs (2.8 KB)
+- Services\DatabaseInitializationService.cs (10.6 KB)
+- Services\EmailService.cs (10.5 KB)
+- Services\IEmailService.cs (2.3 KB)
+
+## 项目统计
+- 总文件数: 17
+- 总大小: 74.6 KB
+- 生成时间: 2025-09-22 10:53:23
+- 项目路径: D:\Programing\C#\NotifyHubAPI\NotifyHubAPI
+
+## 技术栈
+- ASP.NET Core 8.0 Web API
+- Entity Framework Core (SQL Server)
+- MailKit (邮件发送)
+- Serilog (日志记录)
+- AspNetCoreRateLimit (速率限制)
+
+================================================================================
+## 文件内容
+================================================================================
+
+
+### 根目录 文件夹
+--------------------------------------------------
+
+#### 文件: GlobalUsings.cs
+```csharp
+﻿// 全局 using 声明，避免在每个文件中重复引用常用命名空间
+
+global using System;
+global using System.Collections.Generic;
+global using System.ComponentModel.DataAnnotations;
+global using System.Linq;
+global using System.Threading;
+global using System.Threading.Tasks;
+
+global using Microsoft.AspNetCore.Mvc;
+global using Microsoft.EntityFrameworkCore;
+global using Microsoft.Extensions.Configuration;
+global using Microsoft.Extensions.DependencyInjection;
+global using Microsoft.Extensions.Hosting;
+global using Microsoft.Extensions.Logging;
+global using Microsoft.Extensions.Options;
+
+global using NotifyHubAPI.Data;
+global using NotifyHubAPI.Models;
+global using NotifyHubAPI.Services;
+```
+
+#### 文件: NotifyHubAPI.csproj
+```xml
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+	<PropertyGroup>
+		<TargetFramework>net8.0</TargetFramework>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<UserSecretsId>NotifyHubAPI-2024</UserSecretsId>
+		<DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<!-- ASP.NET Core 相关包 -->
+		<PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.0" />
+		<PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
+
+		<!-- Entity Framework Core 相关包 -->
+		<PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.0" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.0">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.0">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+
+		<!-- 日志相关包 -->
+		<PackageReference Include="Serilog.AspNetCore" Version="8.0.0" />
+		<PackageReference Include="Serilog.Sinks.Console" Version="5.0.0" />
+		<PackageReference Include="Serilog.Sinks.File" Version="5.0.0" />
+		<PackageReference Include="Serilog.Sinks.MSSqlServer" Version="6.5.0" />
+
+		<!-- 验证和安全相关包 -->
+		<PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.0" />
+		<PackageReference Include="System.ComponentModel.Annotations" Version="5.0.0" />
+
+		<!-- 速率限制包 -->
+		<PackageReference Include="AspNetCoreRateLimit" Version="5.0.0" />
+
+		<!-- JSON 处理包 -->
+		<PackageReference Include="System.Text.Json" Version="8.0.0" />
+
+		<!-- 邮件发送包 -->
+		<PackageReference Include="MailKit" Version="4.3.0" />
+		<PackageReference Include="MimeKit" Version="4.3.0" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Folder Include="Extensions\" />
+	</ItemGroup>
+
+</Project>
+```
+
+#### 文件: Program.cs
+```csharp
+using NotifyHubAPI.Data;
+using NotifyHubAPI.Services;
+using NotifyHubAPI.Middleware;
+using NotifyHubAPI.BackgroundServices;
+using Microsoft.EntityFrameworkCore;
+using Serilog;
+using AspNetCoreRateLimit;
+
+var builder = WebApplication.CreateBuilder(args);
+
+//  Serilog
+Log.Logger = new LoggerConfiguration()
+    .ReadFrom.Configuration(builder.Configuration)
+    .Enrich.FromLogContext()
+    .WriteTo.Console()
+    .WriteTo.File("logs/notifyhub-.log", rollingInterval: RollingInterval.Day)
+    .CreateLogger();
+
+builder.Host.UseSerilog();
+
+// ÷
+ConfigureServices(builder.Services, builder.Configuration);
+
+var app = builder.Build();
+
+// HTTPܵ
+ConfigurePipeline(app);
+
+// ȷݿѴʼ
+await EnsureDatabaseInitialized(app);
+
+Log.Information("NotifyHubAPI : {Urls}", string.Join(", ", app.Urls));
+
+try
+{
+    await app.RunAsync();
+}
+catch (Exception ex)
+{
+    Log.Fatal(ex, "Ӧóʧ");
+}
+finally
+{
+    Log.CloseAndFlush();
+}
+
+void ConfigureServices(IServiceCollection services, IConfiguration configuration)
+{
+    // 
+    services.AddControllers();
+    services.AddEndpointsApiExplorer();
+    services.AddSwaggerGen(c =>
+    {
+        c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
+        {
+            Title = "NotifyHub API",
+            Version = "v1.0",
+            Description = "ͳһʼ֪ͨAPI - ΪĿṩͳһʼ͹",
+            Contact = new Microsoft.OpenApi.Models.OpenApiContact
+            {
+                Name = "NotifyHub Team",
+                Email = "admin@notify.origami7023.cn"
+            }
+        });
+
+        // API Key֤Swagger
+        c.AddSecurityDefinition("ApiKey", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+        {
+            Description = "API Key֤ (Header: X-API-Key  Authorization: Bearer {key})",
+            Name = "X-API-Key",
+            In = Microsoft.OpenApi.Models.ParameterLocation.Header,
+            Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
+            Scheme = "ApiKeyScheme"
+        });
+
+        c.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
+        {
+            {
+                new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+                {
+                    Reference = new Microsoft.OpenApi.Models.OpenApiReference
+                    {
+                        Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
+                        Id = "ApiKey"
+                    }
+                },
+                Array.Empty<string>()
+            }
+        });
+    });
+
+    // ݿ
+    services.AddDbContext<NotificationDbContext>(options =>
+    {
+        options.UseSqlServer(configuration.GetConnectionString("DefaultConnection"),
+            sqlOptions =>
+            {
+                sqlOptions.EnableRetryOnFailure(
+                    maxRetryCount: 3,
+                    maxRetryDelay: TimeSpan.FromSeconds(30),
+                    errorNumbersToAdd: null);
+                sqlOptions.CommandTimeout(30);
+            });
+    });
+
+    // SMTP
+    services.Configure<SmtpSettings>(configuration.GetSection("SmtpSettings"));
+
+    // ע
+    services.AddScoped<IEmailService, EmailService>();
+    services.AddSingleton<IApiKeyService, ApiKeyService>();
+    services.AddScoped<IDatabaseInitializationService, DatabaseInitializationService>();
+
+    // 
+    services.AddMemoryCache();
+    services.Configure<IpRateLimitOptions>(configuration.GetSection("IpRateLimiting"));
+    services.Configure<IpRateLimitPolicies>(configuration.GetSection("IpRateLimitPolicies"));
+    services.AddInMemoryRateLimiting();
+    services.AddSingleton<IRateLimitConfiguration, RateLimitConfiguration>();
+
+    // 
+    services.AddHealthChecks()
+        .AddDbContextCheck<NotificationDbContext>("database")
+        .AddCheck("smtp", () =>
+        {
+            try
+            {
+                var smtpSettings = configuration.GetSection("SmtpSettings").Get<SmtpSettings>();
+                return !string.IsNullOrEmpty(smtpSettings?.Host)
+                    ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("SMTP")
+                    : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("SMTPȱʧ");
+            }
+            catch
+            {
+                return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("SMTPüʧ");
+            }
+        })
+        .AddCheck("apikeys", serviceProvider =>
+        {
+            try
+            {
+                var apiKeyService = serviceProvider.GetRequiredService<IApiKeyService>();
+                var apiKeys = apiKeyService.GetAllApiKeys();
+                return apiKeys.Count > 0
+                    ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy($"{apiKeys.Count}APIԿ")
+                    : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("δAPIԿ");
+            }
+            catch (Exception ex)
+            {
+                return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy($"APIԿʧ: {ex.Message}");
+            }
+        });
+
+    // ̨
+    services.AddHostedService<EmailRetryBackgroundService>();
+
+    // CORS
+    services.AddCors(options =>
+    {
+        options.AddPolicy("AllowOrigins", policy =>
+        {
+            var allowedOrigins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+                ?? new[] { "https://notify.origami7023.cn", "https://localhost:7000" };
+
+            policy.WithOrigins(allowedOrigins)
+                  .AllowAnyMethod()
+                  .AllowAnyHeader()
+                  .AllowCredentials();
+        });
+    });
+}
+
+void ConfigurePipeline(WebApplication app)
+{
+    // 
+    if (app.Environment.IsDevelopment())
+    {
+        app.UseDeveloperExceptionPage();
+        app.UseSwagger();
+        app.UseSwaggerUI(c =>
+        {
+            c.SwaggerEndpoint("/swagger/v1/swagger.json", "NotifyHub API v1");
+            c.RoutePrefix = string.Empty; // ʹSwaggerΪ·
+        });
+    }
+    else
+    {
+        app.UseExceptionHandler("/Error");
+        app.UseHsts();
+    }
+
+    // м
+    app.UseHttpsRedirection();
+    app.UseCors("AllowOrigins");
+
+    // 
+    app.UseIpRateLimiting();
+
+    // Զм
+    app.UseApiKeyAuthentication();
+
+    // ·ɺͿ
+    app.UseRouting();
+    app.UseAuthorization();
+    app.MapControllers();
+
+    // ˵
+    app.MapHealthChecks("/health");
+    app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+    {
+        Predicate = check => check.Tags.Contains("ready")
+    });
+    app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+    {
+        Predicate = _ => false
+    });
+
+    // Ĭ·
+    app.MapGet("/", () => Results.Redirect("/swagger"));
+
+    // ״̬Ϣ˵
+    app.MapGet("/info", async (IDatabaseInitializationService dbService) =>
+    {
+        var stats = await dbService.GetDatabaseStatsAsync();
+        return Results.Ok(new
+        {
+            service = "NotifyHubAPI",
+            version = "1.0.0",
+            environment = app.Environment.EnvironmentName,
+            timestamp = DateTime.UtcNow,
+            stats = new
+            {
+                totalEmails = stats.TotalEmails,
+                sentEmails = stats.SentEmails,
+                failedEmails = stats.FailedEmails,
+                pendingEmails = stats.PendingEmails
+            }
+        });
+    });
+}
+
+async Task EnsureDatabaseInitialized(WebApplication app)
+{
+    using var scope = app.Services.CreateScope();
+    var dbInitService = scope.ServiceProvider.GetRequiredService<IDatabaseInitializationService>();
+
+    try
+    {
+        // ݿ
+        var canConnect = await dbInitService.CheckDatabaseConnectionAsync();
+        if (!canConnect)
+        {
+            Log.Error("޷ӵݿ⣬ַ");
+            throw new InvalidOperationException("ݿʧ");
+        }
+
+        // ʼݿ
+        await dbInitService.InitializeDatabaseAsync();
+
+        // ȡ¼ͳϢ
+        var stats = await dbInitService.GetDatabaseStatsAsync();
+        Log.Information("ݿͳ: ܼ{Total}ʼ, ɹ{Sent}, ʧ{Failed}, {Pending}",
+            stats.TotalEmails, stats.SentEmails, stats.FailedEmails, stats.PendingEmails);
+    }
+    catch (Exception ex)
+    {
+        Log.Error(ex, "ݿʼʧ");
+        throw;
+    }
+}
+```
+
+#### 文件: appsettings.Development.json
+```json
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning",
+      "NotifyHubAPI": "Debug"
+    }
+  },
+  "ConnectionStrings": {
+    "DefaultConnection": "Server=localhost;Database=NotifyHubAPI_Dev;Trusted_Connection=true;TrustServerCertificate=true;"
+  }
+}
+```
+
+#### 文件: appsettings.Production.json
+```json
+﻿{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning",
+      "Microsoft.EntityFrameworkCore": "Warning",
+      "NotifyHubAPI": "Information"
+    }
+  },
+  "AllowedHosts": "*",
+  "ConnectionStrings": {
+    "DefaultConnection": "Server=your-production-server;Database=NotifyHubAPI_Prod;User Id=notifyhub_user;Password=your-secure-password;TrustServerCertificate=true;MultipleActiveResultSets=true;"
+  },
+  "SmtpSettings": {
+    "Host": "smtp.your-domain.com",
+    "Port": 587,
+    "UseSsl": true,
+    "Username": "noreply@your-domain.com",
+    "Password": "your-production-smtp-password",
+    "FromEmail": "noreply@your-domain.com",
+    "FromName": "通知系统"
+  },
+  "ApiKeys": {
+    "FMS_DATA_PROCESSOR": "prod-fms-secure-api-key-2024",
+    "WEBSITE_NOTIFICATIONS": "prod-website-api-key-2024",
+    "ADMIN_PANEL": "prod-admin-panel-key-2024"
+  },
+  "RateLimiting": {
+    "RequestsPerMinute": 100,
+    "RequestsPerHour": 5000
+  },
+  "RetrySettings": {
+    "MaxRetryAttempts": 5,
+    "RetryDelayMinutes": 10,
+    "CheckIntervalMinutes": 5
+  },
+  "DatabaseSettings": {
+    "CreateTestData": false,
+    "EnableAutoCleanup": true,
+    "CleanupIntervalDays": 30
+  },
+  "Cors": {
+    "AllowedOrigins": [
+      "https://your-production-domain.com",
+      "https://admin.your-domain.com"
+    ]
+  },
+  "IpRateLimiting": {
+    "EnableEndpointRateLimiting": true,
+    "StackBlockedRequests": false,
+    "RealIpHeader": "X-Forwarded-For",
+    "ClientIdHeader": "X-ClientId",
+    "HttpStatusCode": 429,
+    "GeneralRules": [
+      {
+        "Endpoint": "*",
+        "Period": "1m",
+        "Limit": 100
+      },
+      {
+        "Endpoint": "*",
+        "Period": "1h",
+        "Limit": 5000
+      },
+      {
+        "Endpoint": "*/api/email/send",
+        "Period": "1m",
+        "Limit": 50
+      }
+    ]
+  },
+  "IpRateLimitPolicies": {
+    "IpRules": [
+      {
+        "Ip": "10.0.0.0/8",
+        "Rules": [
+          {
+            "Endpoint": "*",
+            "Period": "1m",
+            "Limit": 500
+          }
+        ]
+      }
+    ]
+  },
+  "Serilog": {
+    "Using": [ "Serilog.Sinks.Console", "Serilog.Sinks.File", "Serilog.Sinks.MSSqlServer" ],
+    "MinimumLevel": {
+      "Default": "Information",
+      "Override": {
+        "Microsoft": "Warning",
+        "Microsoft.Hosting.Lifetime": "Information",
+        "Microsoft.EntityFrameworkCore": "Warning",
+        "System": "Warning"
+      }
+    },
+    "WriteTo": [
+      {
+        "Name": "Console",
+        "Args": {
+          "outputTemplate": "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}"
+        }
+      },
+      {
+        "Name": "File",
+        "Args": {
+          "path": "/var/log/notifyhub/notifyhub-.log",
+          "rollingInterval": "Day",
+          "retainedFileCountLimit": 90,
+          "fileSizeLimitBytes": 104857600,
+          "outputTemplate": "[{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} {Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}"
+        }
+      },
+      {
+        "Name": "MSSqlServer",
+        "Args": {
+          "connectionString": "Server=your-production-server;Database=NotifyHubAPI_Prod;User Id=notifyhub_user;Password=your-secure-password;TrustServerCertificate=true;",
+          "tableName": "Logs",
+          "autoCreateSqlTable": true,
+          "restrictedToMinimumLevel": "Warning"
+        }
+      }
+    ],
+    "Enrich": [ "FromLogContext", "WithMachineName", "WithThreadId" ]
+  }
+}
+```
+
+#### 文件: appsettings.json
+```json
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "AllowedHosts": "*",
+  "ConnectionStrings": {
+    "DefaultConnection": "Server=localhost;Database=NotificationApi;Trusted_Connection=true;TrustServerCertificate=true;"
+  },
+  "SmtpSettings": {
+    "Host": "smtp.qq.com",
+    "Port": 587,
+    "UseSsl": true,
+    "Username": "your-email@qq.com",
+    "Password": "your-app-password",
+    "FromEmail": "your-email@qq.com",
+    "FromName": "通知系统"
+  },
+  "ApiKeys": {
+    "FMS_DATA_PROCESSOR": "fms-secure-api-key-2024",
+    "DEFAULT": "default-api-key-2024"
+  },
+  "RateLimiting": {
+    "RequestsPerMinute": 60,
+    "RequestsPerHour": 1000
+  },
+  "RetrySettings": {
+    "MaxRetryAttempts": 3,
+    "RetryDelayMinutes": 5,
+    "CheckIntervalMinutes": 5
+  },
+  "IpRateLimiting": {
+    "EnableEndpointRateLimiting": false,
+    "StackBlockedRequests": false,
+    "RealIpHeader": "X-Real-IP",
+    "ClientIdHeader": "X-ClientId",
+    "HttpStatusCode": 429,
+    "GeneralRules": [
+      {
+        "Endpoint": "*",
+        "Period": "1m",
+        "Limit": 60
+      },
+      {
+        "Endpoint": "*",
+        "Period": "1h",
+        "Limit": 1000
+      },
+      {
+        "Endpoint": "*/api/email/send",
+        "Period": "1m",
+        "Limit": 30
+      }
+    ]
+  },
+  "IpRateLimitPolicies": {
+    "IpRules": [
+      {
+        "Ip": "127.0.0.1",
+        "Rules": [
+          {
+            "Endpoint": "*",
+            "Period": "1m",
+            "Limit": 200
+          }
+        ]
+      }
+    ]
+  },
+  "Serilog": {
+    "Using": [ "Serilog.Sinks.Console", "Serilog.Sinks.File" ],
+    "MinimumLevel": {
+      "Default": "Information",
+      "Override": {
+        "Microsoft": "Warning",
+        "Microsoft.Hosting.Lifetime": "Information",
+        "Microsoft.EntityFrameworkCore": "Warning"
+      }
+    },
+    "WriteTo": [
+      {
+        "Name": "Console",
+        "Args": {
+          "outputTemplate": "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}"
+        }
+      },
+      {
+        "Name": "File",
+        "Args": {
+          "path": "logs/notifyhub-.log",
+          "rollingInterval": "Day",
+          "retainedFileCountLimit": 30,
+          "outputTemplate": "[{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} {Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}"
+        }
+      }
+    ],
+    "Enrich": [ "FromLogContext" ]
+  }
+}
+```
+
+
+### BackgroundServices 文件夹
+--------------------------------------------------
+
+#### 文件: BackgroundServices\EmailRetryBackgroundService.cs
+```csharp
+﻿using NotifyHubAPI.Services;
+
+namespace NotifyHubAPI.BackgroundServices
+{
+    public class EmailRetryBackgroundService : BackgroundService
+    {
+        private readonly IServiceProvider _serviceProvider;
+        private readonly ILogger<EmailRetryBackgroundService> _logger;
+        private readonly IConfiguration _configuration;
+        private readonly TimeSpan _checkInterval;
+        private readonly int _maxRetryAttempts;
+        private readonly int _retryDelayMinutes;
+
+        public EmailRetryBackgroundService(
+            IServiceProvider serviceProvider,
+            ILogger<EmailRetryBackgroundService> logger,
+            IConfiguration configuration)
+        {
+            _serviceProvider = serviceProvider;
+            _logger = logger;
+            _configuration = configuration;
+
+            // 从配置读取重试设置
+            _checkInterval = TimeSpan.FromMinutes(_configuration.GetValue<int>("RetrySettings:CheckIntervalMinutes", 5));
+            _maxRetryAttempts = _configuration.GetValue<int>("RetrySettings:MaxRetryAttempts", 3);
+            _retryDelayMinutes = _configuration.GetValue<int>("RetrySettings:RetryDelayMinutes", 5);
+
+            _logger.LogInformation("邮件重试服务已初始化，检查间隔: {CheckInterval}, 最大重试次数: {MaxRetryAttempts}, 重试延迟: {RetryDelayMinutes}分钟",
+                _checkInterval, _maxRetryAttempts, _retryDelayMinutes);
+        }
+
+        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+        {
+            _logger.LogInformation("邮件重试后台服务启动");
+
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                try
+                {
+                    await ProcessFailedEmails(stoppingToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "处理失败邮件时发生异常");
+                }
+
+                try
+                {
+                    await Task.Delay(_checkInterval, stoppingToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    // 正常取消，退出循环
+                    break;
+                }
+            }
+
+            _logger.LogInformation("邮件重试后台服务已停止");
+        }
+
+        private async Task ProcessFailedEmails(CancellationToken cancellationToken)
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var emailService = scope.ServiceProvider.GetRequiredService<IEmailService>();
+
+            try
+            {
+                // 获取待重试的邮件
+                var pendingEmails = await emailService.GetPendingRetryEmailsAsync(_maxRetryAttempts, _retryDelayMinutes);
+
+                if (pendingEmails.Count == 0)
+                {
+                    _logger.LogDebug("没有待重试的邮件");
+                    return;
+                }
+
+                _logger.LogInformation("发现 {Count} 封待重试邮件", pendingEmails.Count);
+
+                var successCount = 0;
+                var failedCount = 0;
+
+                foreach (var email in pendingEmails)
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                        break;
+
+                    try
+                    {
+                        _logger.LogDebug("开始重试邮件 {EmailId}, 当前重试次数: {RetryCount}",
+                            email.Id, email.RetryCount);
+
+                        var success = await emailService.RetryEmailAsync(email.Id, cancellationToken);
+
+                        if (success)
+                        {
+                            successCount++;
+                            _logger.LogInformation("邮件重试成功 {EmailId}", email.Id);
+                        }
+                        else
+                        {
+                            failedCount++;
+                            _logger.LogWarning("邮件重试失败 {EmailId}", email.Id);
+                        }
+
+                        // 在重试之间添加小延迟，避免对SMTP服务器造成压力
+                        await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        failedCount++;
+                        _logger.LogError(ex, "重试邮件 {EmailId} 时发生异常", email.Id);
+                    }
+                }
+
+                if (successCount > 0 || failedCount > 0)
+                {
+                    _logger.LogInformation("邮件重试批次完成，成功: {SuccessCount}, 失败: {FailedCount}",
+                        successCount, failedCount);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "获取待重试邮件列表时发生异常");
+            }
+        }
+
+        public override async Task StopAsync(CancellationToken cancellationToken)
+        {
+            _logger.LogInformation("正在停止邮件重试后台服务...");
+            await base.StopAsync(cancellationToken);
+        }
+    }
+}
+```
+
+
+### Controllers 文件夹
+--------------------------------------------------
+
+#### 文件: Controllers\EmailController.cs
+```csharp
+﻿using Microsoft.AspNetCore.Mvc;
+using NotifyHubAPI.Models;
+using NotifyHubAPI.Services;
+using System.ComponentModel.DataAnnotations;
+
+namespace NotifyHubAPI.Controllers
+{
+    [ApiController]
+    [Route("api/[controller]")]
+    public class EmailController : ControllerBase
+    {
+        private readonly IEmailService _emailService;
+        private readonly IApiKeyService _apiKeyService;
+        private readonly ILogger<EmailController> _logger;
+
+        public EmailController(
+            IEmailService emailService,
+            IApiKeyService apiKeyService,
+            ILogger<EmailController> logger)
+        {
+            _emailService = emailService;
+            _apiKeyService = apiKeyService;
+            _logger = logger;
+        }
+
+        /// <summary>
+        /// 发送邮件
+        /// </summary>
+        /// <param name="request">邮件发送请求</param>
+        /// <returns>发送结果</returns>
+        [HttpPost("send")]
+        [ProducesResponseType(typeof(ApiResponse<EmailSendResponse>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<object>), 400)]
+        [ProducesResponseType(typeof(ApiResponse<object>), 401)]
+        [ProducesResponseType(typeof(ApiResponse<object>), 500)]
+        public async Task<IActionResult> SendEmail([FromBody] EmailRequest request)
+        {
+            try
+            {
+                // 获取API Key
+                var apiKey = GetApiKeyFromRequest();
+                if (string.IsNullOrEmpty(apiKey))
+                {
+                    return Unauthorized(ApiResponse<object>.FailureResult("缺少API密钥"));
+                }
+
+                // 验证API Key
+                if (!_apiKeyService.IsValidApiKey(apiKey))
+                {
+                    return Unauthorized(ApiResponse<object>.FailureResult("无效的API密钥"));
+                }
+
+                // 模型验证
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState
+                        .SelectMany(x => x.Value.Errors)
+                        .Select(x => x.ErrorMessage);
+                    return BadRequest(ApiResponse<object>.FailureResult($"请求参数错误: {string.Join(", ", errors)}"));
+                }
+
+                // 发送邮件
+                var result = await _emailService.SendEmailAsync(request, apiKey);
+
+                _logger.LogInformation("邮件发送请求完成，EmailId: {EmailId}, Status: {Status}",
+                    result.EmailId, result.Status);
+
+                return Ok(ApiResponse<EmailSendResponse>.SuccessResult(result, "邮件发送请求已处理"));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "邮件发送接口异常");
+                return StatusCode(500, ApiResponse<object>.FailureResult("服务器内部错误"));
+            }
+        }
+
+        /// <summary>
+        /// 获取邮件发送状态
+        /// </summary>
+        /// <param name="emailId">邮件ID</param>
+        /// <returns>邮件状态</returns>
+        [HttpGet("status/{emailId}")]
+        [ProducesResponseType(typeof(ApiResponse<EmailRecord>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<object>), 401)]
+        [ProducesResponseType(typeof(ApiResponse<object>), 404)]
+        public async Task<IActionResult> GetEmailStatus([FromRoute] string emailId)
+        {
+            try
+            {
+                // 获取和验证API Key
+                var apiKey = GetApiKeyFromRequest();
+                if (string.IsNullOrEmpty(apiKey) || !_apiKeyService.IsValidApiKey(apiKey))
+                {
+                    return Unauthorized(ApiResponse<object>.FailureResult("无效的API密钥"));
+                }
+
+                // 验证邮件ID格式
+                if (!Guid.TryParse(emailId, out var guid))
+                {
+                    return BadRequest(ApiResponse<object>.FailureResult("邮件ID格式错误"));
+                }
+
+                // 获取邮件状态
+                var emailRecord = await _emailService.GetEmailStatusAsync(guid);
+                if (emailRecord == null)
+                {
+                    return NotFound(ApiResponse<object>.FailureResult("邮件记录不存在"));
+                }
+
+                // 检查API Key权限（只能查看自己发送的邮件）
+                if (emailRecord.ApiKey != apiKey)
+                {
+                    return NotFound(ApiResponse<object>.FailureResult("邮件记录不存在"));
+                }
+
+                return Ok(ApiResponse<EmailRecord>.SuccessResult(emailRecord));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "获取邮件状态异常，EmailId: {EmailId}", emailId);
+                return StatusCode(500, ApiResponse<object>.FailureResult("服务器内部错误"));
+            }
+        }
+
+        /// <summary>
+        /// 重试发送邮件
+        /// </summary>
+        /// <param name="emailId">邮件ID</param>
+        /// <returns>重试结果</returns>
+        [HttpPost("retry/{emailId}")]
+        [ProducesResponseType(typeof(ApiResponse<bool>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<object>), 401)]
+        [ProducesResponseType(typeof(ApiResponse<object>), 404)]
+        public async Task<IActionResult> RetryEmail([FromRoute] string emailId)
+        {
+            try
+            {
+                // 获取和验证API Key
+                var apiKey = GetApiKeyFromRequest();
+                if (string.IsNullOrEmpty(apiKey) || !_apiKeyService.IsValidApiKey(apiKey))
+                {
+                    return Unauthorized(ApiResponse<object>.FailureResult("无效的API密钥"));
+                }
+
+                // 验证邮件ID格式
+                if (!Guid.TryParse(emailId, out var guid))
+                {
+                    return BadRequest(ApiResponse<object>.FailureResult("邮件ID格式错误"));
+                }
+
+                // 先检查邮件是否存在且属于当前API Key
+                var emailRecord = await _emailService.GetEmailStatusAsync(guid);
+                if (emailRecord == null || emailRecord.ApiKey != apiKey)
+                {
+                    return NotFound(ApiResponse<object>.FailureResult("邮件记录不存在"));
+                }
+
+                // 重试发送
+                var success = await _emailService.RetryEmailAsync(guid);
+
+                return Ok(ApiResponse<bool>.SuccessResult(success,
+                    success ? "邮件重试发送成功" : "邮件重试发送失败"));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "重试发送邮件异常，EmailId: {EmailId}", emailId);
+                return StatusCode(500, ApiResponse<object>.FailureResult("服务器内部错误"));
+            }
+        }
+
+        /// <summary>
+        /// 获取邮件发送历史
+        /// </summary>
+        /// <param name="category">分类筛选</param>
+        /// <param name="status">状态筛选</param>
+        /// <param name="startDate">开始日期</param>
+        /// <param name="endDate">结束日期</param>
+        /// <param name="pageIndex">页码</param>
+        /// <param name="pageSize">页大小</param>
+        /// <returns>邮件历史记录</returns>
+        [HttpGet("history")]
+        [ProducesResponseType(typeof(ApiResponse<EmailHistoryResponse>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<object>), 401)]
+        public async Task<IActionResult> GetEmailHistory(
+            [FromQuery] string? category = null,
+            [FromQuery] EmailStatus? status = null,
+            [FromQuery] DateTime? startDate = null,
+            [FromQuery] DateTime? endDate = null,
+            [FromQuery] int pageIndex = 1,
+            [FromQuery] int pageSize = 20)
+        {
+            try
+            {
+                // 获取和验证API Key
+                var apiKey = GetApiKeyFromRequest();
+                if (string.IsNullOrEmpty(apiKey) || !_apiKeyService.IsValidApiKey(apiKey))
+                {
+                    return Unauthorized(ApiResponse<object>.FailureResult("无效的API密钥"));
+                }
+
+                // 验证分页参数
+                if (pageIndex < 1) pageIndex = 1;
+                if (pageSize < 1) pageSize = 20;
+                if (pageSize > 100) pageSize = 100; // 限制最大页大小
+
+                // 获取历史记录
+                var (records, totalCount) = await _emailService.GetEmailHistoryAsync(
+                    category, status, startDate, endDate, pageIndex, pageSize);
+
+                // 过滤只返回当前API Key的记录
+                var filteredRecords = records.Where(r => r.ApiKey == apiKey).ToList();
+                var filteredCount = totalCount; // 注意：这里需要重新计算，但为了性能暂时使用原值
+
+                var response = new EmailHistoryResponse
+                {
+                    Records = filteredRecords,
+                    TotalCount = filteredCount,
+                    PageIndex = pageIndex,
+                    PageSize = pageSize,
+                    TotalPages = (int)Math.Ceiling((double)filteredCount / pageSize)
+                };
+
+                return Ok(ApiResponse<EmailHistoryResponse>.SuccessResult(response));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "获取邮件历史记录异常");
+                return StatusCode(500, ApiResponse<object>.FailureResult("服务器内部错误"));
+            }
+        }
+
+        /// <summary>
+        /// 健康检查
+        /// </summary>
+        /// <returns>服务状态</returns>
+        [HttpGet("health")]
+        [ProducesResponseType(typeof(ApiResponse<HealthCheckResponse>), 200)]
+        public IActionResult HealthCheck()
+        {
+            var response = new HealthCheckResponse
+            {
+                Status = "Healthy",
+                Timestamp = DateTime.UtcNow,
+                Version = "1.0.0",
+                Environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Unknown"
+            };
+
+            return Ok(ApiResponse<HealthCheckResponse>.SuccessResult(response, "服务运行正常"));
+        }
+
+        /// <summary>
+        /// 从请求中获取API密钥
+        /// </summary>
+        /// <returns>API密钥</returns>
+        private string? GetApiKeyFromRequest()
+        {
+            // 从Authorization Header获取Bearer Token
+            var authHeader = Request.Headers.Authorization.FirstOrDefault();
+            if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
+            {
+                return authHeader.Substring("Bearer ".Length).Trim();
+            }
+
+            // 从X-API-Key Header获取
+            var apiKeyHeader = Request.Headers["X-API-Key"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(apiKeyHeader))
+            {
+                return apiKeyHeader.Trim();
+            }
+
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 邮件历史响应模型
+    /// </summary>
+    public class EmailHistoryResponse
+    {
+        public List<EmailRecord> Records { get; set; } = new();
+        public int TotalCount { get; set; }
+        public int PageIndex { get; set; }
+        public int PageSize { get; set; }
+        public int TotalPages { get; set; }
+    }
+
+    /// <summary>
+    /// 健康检查响应模型
+    /// </summary>
+    public class HealthCheckResponse
+    {
+        public string Status { get; set; } = string.Empty;
+        public DateTime Timestamp { get; set; }
+        public string Version { get; set; } = string.Empty;
+        public string Environment { get; set; } = string.Empty;
+    }
+}
+```
+
+
+### Data 文件夹
+--------------------------------------------------
+
+#### 文件: Data\NotificationDbContext.cs
+```csharp
+﻿using Microsoft.EntityFrameworkCore;
+using NotifyHubAPI.Models;
+using System.Collections.Generic;
+using System.Reflection.Emit;
+
+namespace NotifyHubAPI.Data
+{
+    public class NotificationDbContext : DbContext
+    {
+        public NotificationDbContext(DbContextOptions<NotificationDbContext> options)
+            : base(options)
+        {
+        }
+
+        public DbSet<EmailRecord> EmailRecords { get; set; }
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            base.OnModelCreating(modelBuilder);
+
+            // EmailRecord 配置
+            modelBuilder.Entity<EmailRecord>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+
+                entity.Property(e => e.Id)
+                    .ValueGeneratedOnAdd();
+
+                entity.Property(e => e.ToAddresses)
+                    .IsRequired()
+                    .HasMaxLength(1000);
+
+                entity.Property(e => e.CcAddresses)
+                    .HasMaxLength(1000);
+
+                entity.Property(e => e.BccAddresses)
+                    .HasMaxLength(1000);
+
+                entity.Property(e => e.Subject)
+                    .IsRequired()
+                    .HasMaxLength(500);
+
+                entity.Property(e => e.Body)
+                    .IsRequired();
+
+                entity.Property(e => e.Category)
+                    .IsRequired()
+                    .HasMaxLength(100);
+
+                entity.Property(e => e.ErrorMessage)
+                    .HasMaxLength(2000);
+
+                entity.Property(e => e.ApiKey)
+                    .IsRequired()
+                    .HasMaxLength(100);
+
+                entity.Property(e => e.RequestId)
+                    .HasMaxLength(50);
+
+                entity.Property(e => e.CreatedAt)
+                    .HasDefaultValueSql("GETUTCDATE()");
+
+                // 索引
+                entity.HasIndex(e => e.Status);
+                entity.HasIndex(e => e.Category);
+                entity.HasIndex(e => e.CreatedAt);
+                entity.HasIndex(e => e.ApiKey);
+                entity.HasIndex(e => new { e.Status, e.RetryCount });
+            });
+        }
+    }
+}
+```
+
+
+### Middleware 文件夹
+--------------------------------------------------
+
+#### 文件: Middleware\ApiKeyMiddleware.cs
+```csharp
+﻿using Microsoft.AspNetCore.Http;
+using NotifyHubAPI.Services;
+using System.Text.Json;
+
+namespace NotifyHubAPI.Middleware
+{
+    /// <summary>
+    /// API密钥认证中间件
+    /// 支持多种认证方式：Authorization Bearer Token 和 X-API-Key Header
+    /// </summary>
+    public class ApiKeyMiddleware
+    {
+        private readonly RequestDelegate _next;
+        private readonly ILogger<ApiKeyMiddleware> _logger;
+        private readonly IServiceProvider _serviceProvider;
+
+        // 不需要API Key验证的路径
+        private readonly HashSet<string> _excludedPaths = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "/",
+            "/swagger",
+            "/swagger/index.html",
+            "/swagger/v1/swagger.json",
+            "/health",
+            "/api/email/health"
+        };
+
+        public ApiKeyMiddleware(RequestDelegate next, ILogger<ApiKeyMiddleware> logger, IServiceProvider serviceProvider)
+        {
+            _next = next;
+            _logger = logger;
+            _serviceProvider = serviceProvider;
+        }
+
+        public async Task InvokeAsync(HttpContext context)
+        {
+            // 检查是否为排除的路径
+            if (IsExcludedPath(context.Request.Path))
+            {
+                await _next(context);
+                return;
+            }
+
+            // 获取API Key服务（使用作用域）
+            using var scope = _serviceProvider.CreateScope();
+            var apiKeyService = scope.ServiceProvider.GetRequiredService<IApiKeyService>();
+
+            // 从请求中获取API Key
+            var apiKey = GetApiKeyFromRequest(context);
+
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                _logger.LogWarning("API请求缺少密钥，路径: {Path}, IP: {IP}",
+                    context.Request.Path, GetClientIpAddress(context));
+                await WriteUnauthorizedResponse(context, "缺少API密钥");
+                return;
+            }
+
+            // 验证API Key
+            if (!apiKeyService.IsValidApiKey(apiKey))
+            {
+                _logger.LogWarning("无效的API密钥访问尝试，密钥: {ApiKey}, 路径: {Path}, IP: {IP}",
+                    MaskApiKey(apiKey), context.Request.Path, GetClientIpAddress(context));
+                await WriteUnauthorizedResponse(context, "无效的API密钥");
+                return;
+            }
+
+            // 获取项目名称并添加到请求上下文
+            var projectName = apiKeyService.GetProjectByApiKey(apiKey);
+            if (!string.IsNullOrEmpty(projectName))
+            {
+                context.Items["ProjectName"] = projectName;
+                context.Items["ApiKey"] = apiKey;
+            }
+
+            _logger.LogDebug("API密钥验证通过，项目: {ProjectName}, 路径: {Path}",
+                projectName ?? "Unknown", context.Request.Path);
+
+            // 继续处理请求
+            await _next(context);
+        }
+
+        /// <summary>
+        /// 检查路径是否在排除列表中
+        /// </summary>
+        private bool IsExcludedPath(PathString path)
+        {
+            // 完全匹配
+            if (_excludedPaths.Contains(path.Value))
+                return true;
+
+            // Swagger相关路径
+            if (path.StartsWithSegments("/swagger", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            // 健康检查路径
+            if (path.StartsWithSegments("/health", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return false;
+        }
+
+        /// <summary>
+        /// 从HTTP请求中获取API密钥
+        /// </summary>
+        private static string? GetApiKeyFromRequest(HttpContext context)
+        {
+            // 1. 从Authorization Header获取Bearer Token
+            var authHeader = context.Request.Headers.Authorization.FirstOrDefault();
+            if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                return authHeader.Substring("Bearer ".Length).Trim();
+            }
+
+            // 2. 从X-API-Key Header获取
+            var apiKeyHeader = context.Request.Headers["X-API-Key"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(apiKeyHeader))
+            {
+                return apiKeyHeader.Trim();
+            }
+
+            // 3. 从查询参数获取（仅用于开发环境，不推荐生产使用）
+            var apiKeyQuery = context.Request.Query["apikey"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(apiKeyQuery))
+            {
+                return apiKeyQuery.Trim();
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 获取客户端IP地址
+        /// </summary>
+        private static string GetClientIpAddress(HttpContext context)
+        {
+            // 检查反向代理头
+            var forwardedFor = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(forwardedFor))
+            {
+                return forwardedFor.Split(',')[0].Trim();
+            }
+
+            var realIp = context.Request.Headers["X-Real-IP"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(realIp))
+            {
+                return realIp;
+            }
+
+            // 使用连接的远程IP
+            return context.Connection.RemoteIpAddress?.ToString() ?? "Unknown";
+        }
+
+        /// <summary>
+        /// 掩码API密钥用于日志记录
+        /// </summary>
+        private static string MaskApiKey(string apiKey)
+        {
+            if (string.IsNullOrEmpty(apiKey))
+                return "Empty";
+
+            if (apiKey.Length <= 8)
+                return new string('*', apiKey.Length);
+
+            return apiKey.Substring(0, 4) + new string('*', apiKey.Length - 8) + apiKey.Substring(apiKey.Length - 4);
+        }
+
+        /// <summary>
+        /// 写入未授权响应
+        /// </summary>
+        private static async Task WriteUnauthorizedResponse(HttpContext context, string message)
+        {
+            context.Response.StatusCode = 401;
+            context.Response.ContentType = "application/json";
+
+            var response = new
+            {
+                success = false,
+                message = message,
+                timestamp = DateTime.UtcNow,
+                requestId = Guid.NewGuid().ToString("N")[..8]
+            };
+
+            var jsonResponse = JsonSerializer.Serialize(response, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            });
+
+            await context.Response.WriteAsync(jsonResponse);
+        }
+    }
+
+    /// <summary>
+    /// API密钥中间件扩展方法
+    /// </summary>
+    public static class ApiKeyMiddlewareExtensions
+    {
+        /// <summary>
+        /// 添加API密钥认证中间件
+        /// </summary>
+        public static IApplicationBuilder UseApiKeyAuthentication(this IApplicationBuilder builder)
+        {
+            return builder.UseMiddleware<ApiKeyMiddleware>();
+        }
+    }
+}
+```
+
+
+### Models 文件夹
+--------------------------------------------------
+
+#### 文件: Models\ApiResponse.cs
+```csharp
+﻿namespace NotifyHubAPI.Models
+{
+    public class ApiResponse<T>
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public T? Data { get; set; }
+        public string? RequestId { get; set; }
+        public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+
+        public static ApiResponse<T> SuccessResult(T data, string message = "操作成功")
+        {
+            return new ApiResponse<T>
+            {
+                Success = true,
+                Message = message,
+                Data = data,
+                RequestId = Guid.NewGuid().ToString("N")[..8]
+            };
+        }
+
+        public static ApiResponse<T> FailureResult(string message, T? data = default)
+        {
+            return new ApiResponse<T>
+            {
+                Success = false,
+                Message = message,
+                Data = data,
+                RequestId = Guid.NewGuid().ToString("N")[..8]
+            };
+        }
+    }
+
+    public class EmailSendResponse
+    {
+        public string EmailId { get; set; } = string.Empty;
+        public EmailStatus Status { get; set; }
+        public string Message { get; set; } = string.Empty;
+    }
+}
+```
+
+#### 文件: Models\EmailRecord.cs
+```csharp
+﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+
+namespace NotifyHubAPI.Models
+{
+    [Table("EmailRecords")]
+    public class EmailRecord
+    {
+        [Key]
+        public Guid Id { get; set; } = Guid.NewGuid();
+
+        [Required]
+        [StringLength(1000)]
+        public string ToAddresses { get; set; } = string.Empty;
+
+        [StringLength(1000)]
+        public string? CcAddresses { get; set; }
+
+        [StringLength(1000)]
+        public string? BccAddresses { get; set; }
+
+        [Required]
+        [StringLength(500)]
+        public string Subject { get; set; } = string.Empty;
+
+        [Required]
+        public string Body { get; set; } = string.Empty;
+
+        public EmailPriority Priority { get; set; }
+
+        [Required]
+        [StringLength(100)]
+        public string Category { get; set; } = string.Empty;
+
+        public bool IsHtml { get; set; }
+
+        public EmailStatus Status { get; set; } = EmailStatus.Pending;
+
+        [StringLength(2000)]
+        public string? ErrorMessage { get; set; }
+
+        public int RetryCount { get; set; } = 0;
+
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public DateTime? SentAt { get; set; }
+
+        public DateTime? LastRetryAt { get; set; }
+
+        [Required]
+        [StringLength(100)]
+        public string ApiKey { get; set; } = string.Empty;
+
+        [StringLength(50)]
+        public string? RequestId { get; set; }
+    }
+
+    public enum EmailStatus
+    {
+        Pending = 0,
+        Sent = 1,
+        Failed = 2,
+        Retrying = 3,
+        Cancelled = 4
+    }
+}
+```
+
+#### 文件: Models\EmailRequest.cs
+```csharp
+﻿using System.ComponentModel.DataAnnotations;
+
+namespace NotifyHubAPI.Models
+{
+    public class EmailRequest
+    {
+        [Required(ErrorMessage = "收件人不能为空")]
+        [EmailAddress(ErrorMessage = "收件人邮箱格式不正确")]
+        public List<string> To { get; set; } = new();
+
+        [EmailAddress(ErrorMessage = "抄送邮箱格式不正确")]
+        public List<string>? Cc { get; set; }
+
+        [EmailAddress(ErrorMessage = "密送邮箱格式不正确")]
+        public List<string>? Bcc { get; set; }
+
+        [Required(ErrorMessage = "邮件主题不能为空")]
+        [StringLength(500, ErrorMessage = "主题长度不能超过500字符")]
+        public string Subject { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "邮件内容不能为空")]
+        [StringLength(50000, ErrorMessage = "邮件内容长度不能超过50000字符")]
+        public string Body { get; set; } = string.Empty;
+
+        public EmailPriority Priority { get; set; } = EmailPriority.Normal;
+
+        [Required(ErrorMessage = "邮件分类不能为空")]
+        [StringLength(100, ErrorMessage = "分类长度不能超过100字符")]
+        public string Category { get; set; } = string.Empty;
+
+        public bool IsHtml { get; set; } = false;
+
+        public Dictionary<string, string>? Attachments { get; set; }
+    }
+
+    public enum EmailPriority
+    {
+        Low = 0,
+        Normal = 1,
+        High = 2
+    }
+}
+```
+
+
+### Services 文件夹
+--------------------------------------------------
+
+#### 文件: Services\ApiKeyService.cs
+```csharp
+﻿using Microsoft.Extensions.Options;
+
+namespace NotifyHubAPI.Services
+{
+    public interface IApiKeyService
+    {
+        /// <summary>
+        /// 验证API密钥是否有效
+        /// </summary>
+        /// <param name="apiKey">API密钥</param>
+        /// <returns>是否有效</returns>
+        bool IsValidApiKey(string apiKey);
+
+        /// <summary>
+        /// 根据API密钥获取项目名称
+        /// </summary>
+        /// <param name="apiKey">API密钥</param>
+        /// <returns>项目名称，如果不存在返回null</returns>
+        string? GetProjectByApiKey(string apiKey);
+
+        /// <summary>
+        /// 获取所有有效的API密钥
+        /// </summary>
+        /// <returns>API密钥字典</returns>
+        Dictionary<string, string> GetAllApiKeys();
+    }
+
+    public class ApiKeyService : IApiKeyService
+    {
+        private readonly Dictionary<string, string> _apiKeys;
+        private readonly ILogger<ApiKeyService> _logger;
+
+        public ApiKeyService(IConfiguration configuration, ILogger<ApiKeyService> logger)
+        {
+            _logger = logger;
+            _apiKeys = new Dictionary<string, string>();
+
+            // 从配置文件加载API密钥
+            var apiKeysSection = configuration.GetSection("ApiKeys");
+            foreach (var kvp in apiKeysSection.GetChildren())
+            {
+                var projectName = kvp.Key;
+                var apiKey = kvp.Value;
+
+                if (!string.IsNullOrEmpty(apiKey))
+                {
+                    _apiKeys[apiKey] = projectName;
+                    _logger.LogInformation("已加载API密钥配置，项目: {ProjectName}", projectName);
+                }
+            }
+
+            if (_apiKeys.Count == 0)
+            {
+                _logger.LogWarning("未找到任何API密钥配置");
+            }
+        }
+
+        public bool IsValidApiKey(string apiKey)
+        {
+            if (string.IsNullOrEmpty(apiKey))
+                return false;
+
+            var isValid = _apiKeys.ContainsKey(apiKey);
+
+            if (!isValid)
+            {
+                _logger.LogWarning("无效的API密钥访问尝试: {ApiKey}", apiKey[..Math.Min(8, apiKey.Length)] + "...");
+            }
+
+            return isValid;
+        }
+
+        public string? GetProjectByApiKey(string apiKey)
+        {
+            if (string.IsNullOrEmpty(apiKey))
+                return null;
+
+            return _apiKeys.TryGetValue(apiKey, out var projectName) ? projectName : null;
+        }
+
+        public Dictionary<string, string> GetAllApiKeys()
+        {
+            // 返回项目名到API密钥的映射，用于管理界面
+            return _apiKeys.ToDictionary(kvp => kvp.Value, kvp => kvp.Key);
+        }
+    }
+}
+```
+
+#### 文件: Services\DatabaseInitializationService.cs
+```csharp
+﻿using Microsoft.EntityFrameworkCore;
+using NotifyHubAPI.Data;
+using NotifyHubAPI.Models;
+
+namespace NotifyHubAPI.Services
+{
+    /// <summary>
+    /// 数据库初始化服务
+    /// 负责数据库迁移和基础数据的创建
+    /// </summary>
+    public interface IDatabaseInitializationService
+    {
+        /// <summary>
+        /// 初始化数据库
+        /// </summary>
+        /// <returns></returns>
+        Task InitializeDatabaseAsync();
+
+        /// <summary>
+        /// 检查数据库连接状态
+        /// </summary>
+        /// <returns></returns>
+        Task<bool> CheckDatabaseConnectionAsync();
+
+        /// <summary>
+        /// 获取数据库统计信息
+        /// </summary>
+        /// <returns></returns>
+        Task<DatabaseStats> GetDatabaseStatsAsync();
+    }
+
+    public class DatabaseInitializationService : IDatabaseInitializationService
+    {
+        private readonly NotificationDbContext _context;
+        private readonly ILogger<DatabaseInitializationService> _logger;
+        private readonly IConfiguration _configuration;
+
+        public DatabaseInitializationService(
+            NotificationDbContext context,
+            ILogger<DatabaseInitializationService> logger,
+            IConfiguration configuration)
+        {
+            _context = context;
+            _logger = logger;
+            _configuration = configuration;
+        }
+
+        public async Task InitializeDatabaseAsync()
+        {
+            try
+            {
+                _logger.LogInformation("开始初始化数据库...");
+
+                // 检查数据库是否可以连接
+                var canConnect = await _context.Database.CanConnectAsync();
+                if (!canConnect)
+                {
+                    _logger.LogError("无法连接到数据库");
+                    throw new InvalidOperationException("数据库连接失败");
+                }
+
+                // 检查是否有待应用的迁移
+                var pendingMigrations = await _context.Database.GetPendingMigrationsAsync();
+                if (pendingMigrations.Any())
+                {
+                    _logger.LogInformation("发现 {Count} 个待应用的迁移: {Migrations}",
+                        pendingMigrations.Count(), string.Join(", ", pendingMigrations));
+
+                    // 应用迁移
+                    await _context.Database.MigrateAsync();
+                    _logger.LogInformation("数据库迁移已完成");
+                }
+                else
+                {
+                    _logger.LogInformation("数据库已是最新版本，无需迁移");
+                }
+
+                // 创建测试数据（仅在开发环境）
+                if (_configuration.GetValue<bool>("DatabaseSettings:CreateTestData", false))
+                {
+                    await CreateTestDataAsync();
+                }
+
+                // 清理过期的失败邮件记录（超过30天）
+                await CleanupOldRecordsAsync();
+
+                _logger.LogInformation("数据库初始化完成");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "数据库初始化失败");
+                throw;
+            }
+        }
+
+        public async Task<bool> CheckDatabaseConnectionAsync()
+        {
+            try
+            {
+                return await _context.Database.CanConnectAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "检查数据库连接时发生错误");
+                return false;
+            }
+        }
+
+        public async Task<DatabaseStats> GetDatabaseStatsAsync()
+        {
+            try
+            {
+                var stats = new DatabaseStats
+                {
+                    TotalEmails = await _context.EmailRecords.CountAsync(),
+                    SentEmails = await _context.EmailRecords.CountAsync(e => e.Status == EmailStatus.Sent),
+                    FailedEmails = await _context.EmailRecords.CountAsync(e => e.Status == EmailStatus.Failed),
+                    PendingEmails = await _context.EmailRecords.CountAsync(e => e.Status == EmailStatus.Pending),
+                    RetryingEmails = await _context.EmailRecords.CountAsync(e => e.Status == EmailStatus.Retrying),
+                    Today = await _context.EmailRecords.CountAsync(e => e.CreatedAt.Date == DateTime.Today),
+                    LastWeek = await _context.EmailRecords.CountAsync(e => e.CreatedAt >= DateTime.Today.AddDays(-7)),
+                    LastMonth = await _context.EmailRecords.CountAsync(e => e.CreatedAt >= DateTime.Today.AddMonths(-1))
+                };
+
+                // 获取最常用的分类
+                stats.TopCategories = await _context.EmailRecords
+                    .GroupBy(e => e.Category)
+                    .Select(g => new CategoryStats { Category = g.Key, Count = g.Count() })
+                    .OrderByDescending(c => c.Count)
+                    .Take(10)
+                    .ToListAsync();
+
+                // 获取最近的错误信息
+                stats.RecentErrors = await _context.EmailRecords
+                    .Where(e => e.Status == EmailStatus.Failed && !string.IsNullOrEmpty(e.ErrorMessage))
+                    .OrderByDescending(e => e.CreatedAt)
+                    .Take(5)
+                    .Select(e => new ErrorStats
+                    {
+                        ErrorMessage = e.ErrorMessage,
+                        Count = 1,
+                        LastOccurred = e.CreatedAt
+                    })
+                    .ToListAsync();
+
+                return stats;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "获取数据库统计信息时发生错误");
+                return new DatabaseStats();
+            }
+        }
+
+        private async Task CreateTestDataAsync()
+        {
+            try
+            {
+                // 检查是否已有测试数据
+                var hasData = await _context.EmailRecords.AnyAsync();
+                if (hasData)
+                {
+                    _logger.LogInformation("数据库中已存在数据，跳过测试数据创建");
+                    return;
+                }
+
+                _logger.LogInformation("创建测试数据...");
+
+                var testEmails = new List<EmailRecord>
+                {
+                    new EmailRecord
+                    {
+                        ToAddresses = "test@example.com",
+                        Subject = "系统启动通知",
+                        Body = "NotifyHubAPI 系统已成功启动",
+                        Category = "SYSTEM",
+                        IsHtml = false,
+                        Status = EmailStatus.Sent,
+                        ApiKey = "default-api-key-2024",
+                        CreatedAt = DateTime.UtcNow.AddHours(-2),
+                        SentAt = DateTime.UtcNow.AddHours(-2).AddMinutes(1)
+                    },
+                    new EmailRecord
+                    {
+                        ToAddresses = "admin@example.com",
+                        Subject = "测试邮件发送",
+                        Body = "<h1>这是一封测试邮件</h1><p>用于验证系统功能</p>",
+                        Category = "TEST",
+                        IsHtml = true,
+                        Status = EmailStatus.Failed,
+                        ApiKey = "default-api-key-2024",
+                        ErrorMessage = "SMTP连接超时",
+                        CreatedAt = DateTime.UtcNow.AddHours(-1),
+                        RetryCount = 1
+                    },
+                    new EmailRecord
+                    {
+                        ToAddresses = "user@example.com",
+                        Subject = "欢迎使用邮件服务",
+                        Body = "感谢您使用我们的邮件通知服务",
+                        Category = "WELCOME",
+                        IsHtml = false,
+                        Status = EmailStatus.Pending,
+                        ApiKey = "fms-secure-api-key-2024",
+                        CreatedAt = DateTime.UtcNow.AddMinutes(-30)
+                    }
+                };
+
+                _context.EmailRecords.AddRange(testEmails);
+                await _context.SaveChangesAsync();
+
+                _logger.LogInformation("测试数据创建完成，共创建 {Count} 条记录", testEmails.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "创建测试数据时发生错误");
+            }
+        }
+
+        private async Task CleanupOldRecordsAsync()
+        {
+            try
+            {
+                var cutoffDate = DateTime.UtcNow.AddDays(-30);
+                var oldRecords = await _context.EmailRecords
+                    .Where(e => e.Status == EmailStatus.Failed && e.CreatedAt < cutoffDate)
+                    .CountAsync();
+
+                if (oldRecords > 0)
+                {
+                    _logger.LogInformation("清理 {Count} 条超过30天的失败邮件记录", oldRecords);
+
+                    await _context.EmailRecords
+                        .Where(e => e.Status == EmailStatus.Failed && e.CreatedAt < cutoffDate)
+                        .ExecuteDeleteAsync();
+
+                    _logger.LogInformation("旧记录清理完成");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "清理旧记录时发生错误");
+            }
+        }
+    }
+
+    /// <summary>
+    /// 数据库统计信息
+    /// </summary>
+    public class DatabaseStats
+    {
+        public int TotalEmails { get; set; }
+        public int SentEmails { get; set; }
+        public int FailedEmails { get; set; }
+        public int PendingEmails { get; set; }
+        public int RetryingEmails { get; set; }
+        public int Today { get; set; }
+        public int LastWeek { get; set; }
+        public int LastMonth { get; set; }
+        public List<CategoryStats> TopCategories { get; set; } = new();
+        public List<ErrorStats> RecentErrors { get; set; } = new();
+    }
+
+    /// <summary>
+    /// 分类统计
+    /// </summary>
+    public class CategoryStats
+    {
+        public string Category { get; set; } = string.Empty;
+        public int Count { get; set; }
+    }
+
+    /// <summary>
+    /// 错误统计
+    /// </summary>
+    public class ErrorStats
+    {
+        public string ErrorMessage { get; set; } = string.Empty;
+        public int Count { get; set; }
+        public DateTime LastOccurred { get; set; }
+    }
+}
+```
+
+#### 文件: Services\EmailService.cs
+```csharp
+﻿using MailKit.Net.Smtp;
+using MailKit.Security;
+using MimeKit;
+using MimeKit.Text;
+
+namespace NotifyHubAPI.Services
+{
+    public class EmailService : IEmailService
+    {
+        private readonly NotificationDbContext _context;
+        private readonly SmtpSettings _smtpSettings;
+        private readonly ILogger<EmailService> _logger;
+
+        public EmailService(
+            NotificationDbContext context,
+            IOptions<SmtpSettings> smtpSettings,
+            ILogger<EmailService> logger)
+        {
+            _context = context;
+            _smtpSettings = smtpSettings.Value;
+            _logger = logger;
+        }
+
+        public async Task<EmailSendResponse> SendEmailAsync(EmailRequest emailRequest, string apiKey, CancellationToken cancellationToken = default)
+        {
+            var requestId = Guid.NewGuid().ToString("N")[..8];
+            _logger.LogInformation("开始发送邮件，RequestId: {RequestId}, Category: {Category}", requestId, emailRequest.Category);
+
+            // 创建邮件记录
+            var emailRecord = new EmailRecord
+            {
+                ToAddresses = string.Join(";", emailRequest.To),
+                CcAddresses = emailRequest.Cc?.Any() == true ? string.Join(";", emailRequest.Cc) : null,
+                BccAddresses = emailRequest.Bcc?.Any() == true ? string.Join(";", emailRequest.Bcc) : null,
+                Subject = emailRequest.Subject,
+                Body = emailRequest.Body,
+                Priority = emailRequest.Priority,
+                Category = emailRequest.Category,
+                IsHtml = emailRequest.IsHtml,
+                ApiKey = apiKey,
+                RequestId = requestId,
+                Status = EmailStatus.Pending
+            };
+
+            try
+            {
+                // 保存到数据库
+                _context.EmailRecords.Add(emailRecord);
+                await _context.SaveChangesAsync(cancellationToken);
+
+                // 发送邮件
+                await SendEmailInternalAsync(emailRecord, cancellationToken);
+
+                // 更新状态为已发送
+                emailRecord.Status = EmailStatus.Sent;
+                emailRecord.SentAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync(cancellationToken);
+
+                _logger.LogInformation("邮件发送成功，EmailId: {EmailId}, RequestId: {RequestId}", emailRecord.Id, requestId);
+
+                return new EmailSendResponse
+                {
+                    EmailId = emailRecord.Id.ToString(),
+                    Status = EmailStatus.Sent,
+                    Message = "邮件发送成功"
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "邮件发送失败，EmailId: {EmailId}, RequestId: {RequestId}", emailRecord.Id, requestId);
+
+                // 更新状态为失败
+                emailRecord.Status = EmailStatus.Failed;
+                emailRecord.ErrorMessage = ex.Message;
+                await _context.SaveChangesAsync(cancellationToken);
+
+                return new EmailSendResponse
+                {
+                    EmailId = emailRecord.Id.ToString(),
+                    Status = EmailStatus.Failed,
+                    Message = $"邮件发送失败: {ex.Message}"
+                };
+            }
+        }
+
+        public async Task<bool> RetryEmailAsync(Guid emailId, CancellationToken cancellationToken = default)
+        {
+            var emailRecord = await _context.EmailRecords.FindAsync(emailId);
+            if (emailRecord == null)
+            {
+                _logger.LogWarning("未找到邮件记录，EmailId: {EmailId}", emailId);
+                return false;
+            }
+
+            if (emailRecord.Status == EmailStatus.Sent)
+            {
+                _logger.LogInformation("邮件已发送，无需重试，EmailId: {EmailId}", emailId);
+                return true;
+            }
+
+            try
+            {
+                _logger.LogInformation("开始重试发送邮件，EmailId: {EmailId}, 重试次数: {RetryCount}", emailId, emailRecord.RetryCount + 1);
+
+                // 更新重试信息
+                emailRecord.Status = EmailStatus.Retrying;
+                emailRecord.RetryCount++;
+                emailRecord.LastRetryAt = DateTime.UtcNow;
+                emailRecord.ErrorMessage = null;
+
+                await _context.SaveChangesAsync(cancellationToken);
+
+                // 重新发送邮件
+                await SendEmailInternalAsync(emailRecord, cancellationToken);
+
+                // 更新状态为已发送
+                emailRecord.Status = EmailStatus.Sent;
+                emailRecord.SentAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync(cancellationToken);
+
+                _logger.LogInformation("邮件重试发送成功，EmailId: {EmailId}", emailId);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "邮件重试发送失败，EmailId: {EmailId}", emailId);
+
+                // 更新状态为失败
+                emailRecord.Status = EmailStatus.Failed;
+                emailRecord.ErrorMessage = ex.Message;
+                await _context.SaveChangesAsync(cancellationToken);
+
+                return false;
+            }
+        }
+
+        public async Task<EmailRecord?> GetEmailStatusAsync(Guid emailId)
+        {
+            return await _context.EmailRecords.FindAsync(emailId);
+        }
+
+        public async Task<List<EmailRecord>> GetPendingRetryEmailsAsync(int maxRetryCount, int retryDelayMinutes)
+        {
+            var cutoffTime = DateTime.UtcNow.AddMinutes(-retryDelayMinutes);
+
+            return await _context.EmailRecords
+                .Where(e => e.Status == EmailStatus.Failed &&
+                           e.RetryCount < maxRetryCount &&
+                           (e.LastRetryAt == null || e.LastRetryAt <= cutoffTime))
+                .OrderBy(e => e.CreatedAt)
+                .Take(50) // 限制一次处理的数量
+                .ToListAsync();
+        }
+
+        public async Task<(List<EmailRecord> Records, int TotalCount)> GetEmailHistoryAsync(
+            string? category = null,
+            EmailStatus? status = null,
+            DateTime? startDate = null,
+            DateTime? endDate = null,
+            int pageIndex = 1,
+            int pageSize = 20)
+        {
+            var query = _context.EmailRecords.AsQueryable();
+
+            // 应用过滤条件
+            if (!string.IsNullOrEmpty(category))
+                query = query.Where(e => e.Category == category);
+
+            if (status.HasValue)
+                query = query.Where(e => e.Status == status.Value);
+
+            if (startDate.HasValue)
+                query = query.Where(e => e.CreatedAt >= startDate.Value);
+
+            if (endDate.HasValue)
+                query = query.Where(e => e.CreatedAt <= endDate.Value);
+
+            // 获取总数
+            var totalCount = await query.CountAsync();
+
+            // 分页和排序
+            var records = await query
+                .OrderByDescending(e => e.CreatedAt)
+                .Skip((pageIndex - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            return (records, totalCount);
+        }
+
+        private async Task SendEmailInternalAsync(EmailRecord emailRecord, CancellationToken cancellationToken = default)
+        {
+            var message = new MimeMessage();
+
+            // 设置发件人
+            message.From.Add(new MailboxAddress(_smtpSettings.FromName, _smtpSettings.FromEmail));
+
+            // 设置收件人
+            foreach (var to in emailRecord.ToAddresses.Split(';', StringSplitOptions.RemoveEmptyEntries))
+            {
+                message.To.Add(MailboxAddress.Parse(to.Trim()));
+            }
+
+            // 设置抄送
+            if (!string.IsNullOrEmpty(emailRecord.CcAddresses))
+            {
+                foreach (var cc in emailRecord.CcAddresses.Split(';', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    message.Cc.Add(MailboxAddress.Parse(cc.Trim()));
+                }
+            }
+
+            // 设置密送
+            if (!string.IsNullOrEmpty(emailRecord.BccAddresses))
+            {
+                foreach (var bcc in emailRecord.BccAddresses.Split(';', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    message.Bcc.Add(MailboxAddress.Parse(bcc.Trim()));
+                }
+            }
+
+            // 设置主题
+            message.Subject = emailRecord.Subject;
+
+            // 设置优先级
+            message.Priority = emailRecord.Priority switch
+            {
+                EmailPriority.High => MessagePriority.Urgent,
+                EmailPriority.Low => MessagePriority.NonUrgent,
+                _ => MessagePriority.Normal
+            };
+
+            // 设置邮件正文
+            var textFormat = emailRecord.IsHtml ? TextFormat.Html : TextFormat.Plain;
+            message.Body = new TextPart(textFormat)
+            {
+                Text = emailRecord.Body
+            };
+
+            // 发送邮件
+            using var smtpClient = new SmtpClient();
+
+            try
+            {
+                // 连接到SMTP服务器
+                await smtpClient.ConnectAsync(_smtpSettings.Host, _smtpSettings.Port,
+                    _smtpSettings.UseSsl ? SecureSocketOptions.StartTls : SecureSocketOptions.None, cancellationToken);
+
+                // 身份验证
+                await smtpClient.AuthenticateAsync(_smtpSettings.Username, _smtpSettings.Password, cancellationToken);
+
+                // 发送邮件
+                await smtpClient.SendAsync(message, cancellationToken);
+            }
+            finally
+            {
+                if (smtpClient.IsConnected)
+                {
+                    await smtpClient.DisconnectAsync(true, cancellationToken);
+                }
+            }
+        }
+    }
+
+    public class SmtpSettings
+    {
+        public string Host { get; set; } = string.Empty;
+        public int Port { get; set; }
+        public bool UseSsl { get; set; }
+        public string Username { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+        public string FromEmail { get; set; } = string.Empty;
+        public string FromName { get; set; } = string.Empty;
+    }
+}
+```
+
+#### 文件: Services\IEmailService.cs
+```csharp
+﻿using NotifyHubAPI.Models;
+
+namespace NotifyHubAPI.Services
+{
+    public interface IEmailService
+    {
+        /// <summary>
+        /// 发送邮件
+        /// </summary>
+        /// <param name="emailRequest">邮件请求</param>
+        /// <param name="apiKey">API密钥</param>
+        /// <param name="cancellationToken">取消令牌</param>
+        /// <returns>邮件发送响应</returns>
+        Task<EmailSendResponse> SendEmailAsync(EmailRequest emailRequest, string apiKey, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// 重试发送失败的邮件
+        /// </summary>
+        /// <param name="emailId">邮件ID</param>
+        /// <param name="cancellationToken">取消令牌</param>
+        /// <returns>是否重试成功</returns>
+        Task<bool> RetryEmailAsync(Guid emailId, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// 获取邮件发送状态
+        /// </summary>
+        /// <param name="emailId">邮件ID</param>
+        /// <returns>邮件记录</returns>
+        Task<EmailRecord?> GetEmailStatusAsync(Guid emailId);
+
+        /// <summary>
+        /// 获取待重试的邮件列表
+        /// </summary>
+        /// <param name="maxRetryCount">最大重试次数</param>
+        /// <param name="retryDelayMinutes">重试延迟分钟数</param>
+        /// <returns>待重试的邮件列表</returns>
+        Task<List<EmailRecord>> GetPendingRetryEmailsAsync(int maxRetryCount, int retryDelayMinutes);
+
+        /// <summary>
+        /// 获取邮件发送历史
+        /// </summary>
+        /// <param name="category">分类</param>
+        /// <param name="status">状态</param>
+        /// <param name="startDate">开始日期</param>
+        /// <param name="endDate">结束日期</param>
+        /// <param name="pageIndex">页码</param>
+        /// <param name="pageSize">页大小</param>
+        /// <returns>邮件历史记录</returns>
+        Task<(List<EmailRecord> Records, int TotalCount)> GetEmailHistoryAsync(
+            string? category = null,
+            EmailStatus? status = null,
+            DateTime? startDate = null,
+            DateTime? endDate = null,
+            int pageIndex = 1,
+            int pageSize = 20);
+    }
+}
+```

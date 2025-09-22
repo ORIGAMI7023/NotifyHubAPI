@@ -1,4 +1,4 @@
-﻿namespace NotificationApi.Models
+﻿namespace NotifyHubAPI.Models
 {
     public class ApiResponse<T>
     {

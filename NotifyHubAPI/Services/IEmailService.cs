@@ -1,6 +1,6 @@
-﻿using NotificationApi.Models;
+﻿using NotifyHubAPI.Models;
 
-namespace NotificationApi.Services
+namespace NotifyHubAPI.Services
 {
     public interface IEmailService
     {

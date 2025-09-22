@@ -1,12 +1,9 @@
-﻿using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
-using NotificationApi.Data;
-using NotificationApi.Models;
-using System.Net;
-using System.Net.Mail;
-using System.Text.Json;
+﻿using MailKit.Net.Smtp;
+using MailKit.Security;
+using MimeKit;
+using MimeKit.Text;
 
-namespace NotificationApi.Services
+namespace NotifyHubAPI.Services
 {
     public class EmailService : IEmailService
     {
@@ -193,53 +190,75 @@ namespace NotificationApi.Services
 
         private async Task SendEmailInternalAsync(EmailRecord emailRecord, CancellationToken cancellationToken = default)
         {
-            using var smtpClient = new SmtpClient(_smtpSettings.Host, _smtpSettings.Port)
-            {
-                Credentials = new NetworkCredential(_smtpSettings.Username, _smtpSettings.Password),
-                EnableSsl = _smtpSettings.UseSsl
-            };
+            var message = new MimeMessage();
 
-            using var mailMessage = new MailMessage
-            {
-                From = new MailAddress(_smtpSettings.FromEmail, _smtpSettings.FromName),
-                Subject = emailRecord.Subject,
-                Body = emailRecord.Body,
-                IsBodyHtml = emailRecord.IsHtml
-            };
+            // 设置发件人
+            message.From.Add(new MailboxAddress(_smtpSettings.FromName, _smtpSettings.FromEmail));
 
-            // 设置优先级
-            mailMessage.Priority = emailRecord.Priority switch
-            {
-                EmailPriority.High => MailPriority.High,
-                EmailPriority.Low => MailPriority.Low,
-                _ => MailPriority.Normal
-            };
-
-            // 添加收件人
+            // 设置收件人
             foreach (var to in emailRecord.ToAddresses.Split(';', StringSplitOptions.RemoveEmptyEntries))
             {
-                mailMessage.To.Add(to.Trim());
+                message.To.Add(MailboxAddress.Parse(to.Trim()));
             }
 
-            // 添加抄送
+            // 设置抄送
             if (!string.IsNullOrEmpty(emailRecord.CcAddresses))
             {
                 foreach (var cc in emailRecord.CcAddresses.Split(';', StringSplitOptions.RemoveEmptyEntries))
                 {
-                    mailMessage.CC.Add(cc.Trim());
+                    message.Cc.Add(MailboxAddress.Parse(cc.Trim()));
                 }
             }
 
-            // 添加密送
+            // 设置密送
             if (!string.IsNullOrEmpty(emailRecord.BccAddresses))
             {
                 foreach (var bcc in emailRecord.BccAddresses.Split(';', StringSplitOptions.RemoveEmptyEntries))
                 {
-                    mailMessage.Bcc.Add(bcc.Trim());
+                    message.Bcc.Add(MailboxAddress.Parse(bcc.Trim()));
                 }
             }
 
-            await smtpClient.SendMailAsync(mailMessage, cancellationToken);
+            // 设置主题
+            message.Subject = emailRecord.Subject;
+
+            // 设置优先级
+            message.Priority = emailRecord.Priority switch
+            {
+                EmailPriority.High => MessagePriority.Urgent,
+                EmailPriority.Low => MessagePriority.NonUrgent,
+                _ => MessagePriority.Normal
+            };
+
+            // 设置邮件正文
+            var textFormat = emailRecord.IsHtml ? TextFormat.Html : TextFormat.Plain;
+            message.Body = new TextPart(textFormat)
+            {
+                Text = emailRecord.Body
+            };
+
+            // 发送邮件
+            using var smtpClient = new SmtpClient();
+
+            try
+            {
+                // 连接到SMTP服务器
+                await smtpClient.ConnectAsync(_smtpSettings.Host, _smtpSettings.Port,
+                    _smtpSettings.UseSsl ? SecureSocketOptions.StartTls : SecureSocketOptions.None, cancellationToken);
+
+                // 身份验证
+                await smtpClient.AuthenticateAsync(_smtpSettings.Username, _smtpSettings.Password, cancellationToken);
+
+                // 发送邮件
+                await smtpClient.SendAsync(message, cancellationToken);
+            }
+            finally
+            {
+                if (smtpClient.IsConnected)
+                {
+                    await smtpClient.DisconnectAsync(true, cancellationToken);
+                }
+            }
         }
     }
 

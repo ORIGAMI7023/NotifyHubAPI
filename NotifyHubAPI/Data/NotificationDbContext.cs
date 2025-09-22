@@ -1,9 +1,9 @@
 ﻿using Microsoft.EntityFrameworkCore;
-using NotificationApi.Models;
+using NotifyHubAPI.Models;
 using System.Collections.Generic;
 using System.Reflection.Emit;
 
-namespace NotificationApi.Data
+namespace NotifyHubAPI.Data
 {
     public class NotificationDbContext : DbContext
     {

@@ -1,6 +1,6 @@
 ﻿using Microsoft.Extensions.Options;
 
-namespace NotificationApi.Services
+namespace NotifyHubAPI.Services
 {
     public interface IApiKeyService
     {

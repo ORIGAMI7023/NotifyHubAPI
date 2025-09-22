@@ -1,6 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 
-namespace NotificationApi.Models
+namespace NotifyHubAPI.Models
 {
     public class EmailRequest
     {
