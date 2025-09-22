@@ -5,13 +5,10 @@ namespace NotifyHubAPI.Models
     public class EmailRequest
     {
         [Required(ErrorMessage = "收件人不能为空")]
-        [EmailAddress(ErrorMessage = "收件人邮箱格式不正确")]
         public List<string> To { get; set; } = new();
 
-        [EmailAddress(ErrorMessage = "抄送邮箱格式不正确")]
         public List<string>? Cc { get; set; }
 
-        [EmailAddress(ErrorMessage = "密送邮箱格式不正确")]
         public List<string>? Bcc { get; set; }
 
         [Required(ErrorMessage = "邮件主题不能为空")]

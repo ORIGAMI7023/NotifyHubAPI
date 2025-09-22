@@ -2,6 +2,7 @@
 using NotifyHubAPI.Models;
 using NotifyHubAPI.Services;
 using System.ComponentModel.DataAnnotations;
+using System.Text.RegularExpressions;
 
 namespace NotifyHubAPI.Controllers
 {
@@ -48,6 +49,13 @@ namespace NotifyHubAPI.Controllers
                 if (!_apiKeyService.IsValidApiKey(apiKey))
                 {
                     return Unauthorized(ApiResponse<object>.FailureResult("无效的API密钥"));
+                }
+
+                // 自定义邮箱验证
+                var emailValidationErrors = ValidateEmails(request);
+                if (emailValidationErrors.Any())
+                {
+                    return BadRequest(ApiResponse<object>.FailureResult($"邮箱格式错误: {string.Join(", ", emailValidationErrors)}"));
                 }
 
                 // 模型验证
@@ -269,6 +277,59 @@ namespace NotifyHubAPI.Controllers
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// 验证邮箱地址格式
+        /// </summary>
+        /// <param name="request">邮件请求</param>
+        /// <returns>验证错误列表</returns>
+        private List<string> ValidateEmails(EmailRequest request)
+        {
+            var errors = new List<string>();
+            var emailRegex = new Regex(@"^[^@\s]+@[^@\s]+\.[^@\s]+$");
+
+            // 验证收件人
+            if (request.To?.Any() == true)
+            {
+                foreach (var email in request.To)
+                {
+                    if (string.IsNullOrWhiteSpace(email) || !emailRegex.IsMatch(email))
+                    {
+                        errors.Add($"收件人邮箱格式不正确: {email}");
+                    }
+                }
+            }
+            else
+            {
+                errors.Add("收件人不能为空");
+            }
+
+            // 验证抄送
+            if (request.Cc?.Any() == true)
+            {
+                foreach (var email in request.Cc)
+                {
+                    if (!string.IsNullOrWhiteSpace(email) && !emailRegex.IsMatch(email))
+                    {
+                        errors.Add($"抄送邮箱格式不正确: {email}");
+                    }
+                }
+            }
+
+            // 验证密送
+            if (request.Bcc?.Any() == true)
+            {
+                foreach (var email in request.Bcc)
+                {
+                    if (!string.IsNullOrWhiteSpace(email) && !emailRegex.IsMatch(email))
+                    {
+                        errors.Add($"密送邮箱格式不正确: {email}");
+                    }
+                }
+            }
+
+            return errors;
         }
     }
 

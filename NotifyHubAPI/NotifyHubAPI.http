@@ -1,6 +1,174 @@
-@NotifyHubAPI_HostAddress = http://localhost:5157
+# NotifyHubAPI 测试文件
+# 用于测试邮件通知API的各个端点
+# 使用方法：在VS Code中安装REST Client插件，然后点击"Send Request"
 
-GET {{NotifyHubAPI_HostAddress}}/weatherforecast/
+@NotifyHubAPI_HostAddress = http://localhost:5157
+@ApiKey = default-api-key-2024
+@FmsApiKey = fms-secure-api-key-2024
+
+### 1. 健康检查 - 基础连通性测试
+GET {{NotifyHubAPI_HostAddress}}/health
 Accept: application/json
 
-###
+### 2. 系统信息 - 获取服务状态
+GET {{NotifyHubAPI_HostAddress}}/info
+Accept: application/json
+X-API-Key: {{ApiKey}}
+
+### 3. 邮件健康检查 - API专用健康检查
+GET {{NotifyHubAPI_HostAddress}}/api/Email/health
+Accept: application/json
+X-API-Key: {{ApiKey}}
+
+### 4. 发送简单文本邮件 - 基础功能测试
+POST {{NotifyHubAPI_HostAddress}}/api/Email/send
+Content-Type: application/json
+X-API-Key: {{ApiKey}}
+
+{
+  "to": ["2840080918@qq.com"],
+  "subject": "NotifyHub API 基础测试",
+  "body": "这是来自NotifyHubAPI的第一封测试邮件，发送时间：2024年9月22日",
+  "category": "TEST",
+  "isHtml": false
+}
+
+### 5. 发送HTML邮件 - HTML格式测试
+POST {{NotifyHubAPI_HostAddress}}/api/Email/send
+Content-Type: application/json
+X-API-Key: {{ApiKey}}
+
+{
+  "to": ["2840080918@qq.com"],
+  "subject": "NotifyHub API HTML测试",
+  "body": "<h2>NotifyHubAPI HTML邮件测试</h2><p>这是一封<strong>HTML格式</strong>的测试邮件。</p><ul><li>支持HTML标签</li><li>支持样式格式</li></ul><p>测试时间：<em>2024年9月22日</em></p>",
+  "category": "TEST",
+  "isHtml": true
+}
+
+### 6. 发送高优先级邮件 - 优先级测试
+POST {{NotifyHubAPI_HostAddress}}/api/Email/send
+Content-Type: application/json
+X-API-Key: {{ApiKey}}
+
+{
+  "to": ["2840080918@qq.com"],
+  "subject": "【紧急】NotifyHub API 高优先级测试",
+  "body": "这是一封高优先级的测试邮件，用于验证优先级设置功能。",
+  "category": "URGENT_TEST",
+  "priority": 2,
+  "isHtml": false
+}
+
+### 7. 发送多收件人邮件 - 多收件人测试
+POST {{NotifyHubAPI_HostAddress}}/api/Email/send
+Content-Type: application/json
+X-API-Key: {{ApiKey}}
+
+{
+  "to": ["2840080918@qq.com"],
+  "cc": ["2840080918@qq.com"],
+  "subject": "NotifyHub API 多收件人测试",
+  "body": "这是一封多收件人的测试邮件，用于验证TO、CC功能。",
+  "category": "MULTI_RECIPIENT_TEST",
+  "isHtml": false
+}
+
+### 8. FMS项目专用邮件 - 使用FMS API Key
+POST {{NotifyHubAPI_HostAddress}}/api/Email/send
+Content-Type: application/json
+X-API-Key: {{FmsApiKey}}
+
+{
+  "to": ["2840080918@qq.com"],
+  "subject": "FMS数据处理完成通知",
+  "body": "FMS系统数据处理任务已完成。\n\n处理结果：\n- 成功处理文件：10个\n- 处理时间：2024-09-22 16:30:00\n- 状态：成功",
+  "category": "FMS_DATA_PROCESSOR",
+  "isHtml": false
+}
+
+### 9. 查询邮件状态 - 状态跟踪测试 (需要先发送邮件获取ID)
+# 注意：将{email-id}替换为实际的邮件ID
+GET {{NotifyHubAPI_HostAddress}}/api/Email/status/{email-id}
+Accept: application/json
+X-API-Key: {{ApiKey}}
+
+### 10. 邮件发送历史 - 历史查询测试
+GET {{NotifyHubAPI_HostAddress}}/api/Email/history?pageIndex=1&pageSize=10
+Accept: application/json
+X-API-Key: {{ApiKey}}
+
+### 11. 按类别查询邮件历史
+GET {{NotifyHubAPI_HostAddress}}/api/Email/history?category=TEST&pageIndex=1&pageSize=5
+Accept: application/json
+X-API-Key: {{ApiKey}}
+
+### 12. 按状态查询邮件历史
+GET {{NotifyHubAPI_HostAddress}}/api/Email/history?status=1&pageIndex=1&pageSize=5
+Accept: application/json
+X-API-Key: {{ApiKey}}
+
+### 13. 重试失败邮件 - 重试机制测试 (需要先有失败的邮件ID)
+# 注意：将{email-id}替换为失败邮件的ID
+POST {{NotifyHubAPI_HostAddress}}/api/Email/retry/{email-id}
+Accept: application/json
+X-API-Key: {{ApiKey}}
+
+### 14. 无效API Key测试 - 安全测试
+POST {{NotifyHubAPI_HostAddress}}/api/Email/send
+Content-Type: application/json
+X-API-Key: invalid-api-key
+
+{
+  "to": ["2840080918@qq.com"],
+  "subject": "无效API Key测试",
+  "body": "这个请求应该被拒绝",
+  "category": "SECURITY_TEST",
+  "isHtml": false
+}
+
+### 15. 缺少API Key测试 - 安全测试
+POST {{NotifyHubAPI_HostAddress}}/api/Email/send
+Content-Type: application/json
+
+{
+  "to": ["2840080918@qq.com"],
+  "subject": "缺少API Key测试",
+  "body": "这个请求应该被拒绝",
+  "category": "SECURITY_TEST",
+  "isHtml": false
+}
+
+### 16. 无效邮箱地址测试 - 验证测试
+POST {{NotifyHubAPI_HostAddress}}/api/Email/send
+Content-Type: application/json
+X-API-Key: {{ApiKey}}
+
+{
+  "to": ["invalid-email"],
+  "subject": "无效邮箱测试",
+  "body": "这个请求应该返回验证错误",
+  "category": "VALIDATION_TEST",
+  "isHtml": false
+}
+
+### 17. 空主题测试 - 验证测试
+POST {{NotifyHubAPI_HostAddress}}/api/Email/send
+Content-Type: application/json
+X-API-Key: {{ApiKey}}
+
+{
+  "to": ["2840080918@qq.com"],
+  "subject": "",
+  "body": "空主题验证测试",
+  "category": "VALIDATION_TEST",
+  "isHtml": false
+}
+
+# ========================================
+# 测试说明：
+# 1. 确保应用程序已启动在 http://localhost:5157
+# 2. 确保已修复 appsettings.Development.json 中的 FromEmail 配置
+# 3. 测试顺序建议：健康检查 → 简单邮件 → 复杂功能 → 安全测试
+# 4. 对于需要邮件ID的测试，先执行发送邮件获取ID，然后替换占位符
+# ========================================
