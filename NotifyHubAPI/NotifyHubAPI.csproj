@@ -13,18 +13,6 @@
 		<PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.0" />
 		<PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
 
-		<!-- Entity Framework Core 相关包 - 统一使用8.0版本 -->
-		<PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
-		<PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.0" />
-		<PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.0">
-			<PrivateAssets>all</PrivateAssets>
-			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-		</PackageReference>
-		<PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.0">
-			<PrivateAssets>all</PrivateAssets>
-			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-		</PackageReference>
-
 		<!-- 健康检查相关包 -->
 		<PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="8.0.0" />
 
@@ -40,14 +28,13 @@
 		<!-- 速率限制包 -->
 		<PackageReference Include="AspNetCoreRateLimit" Version="5.0.0" />
 
-		<!-- 邮件发送包 - 使用较新版本修复安全漏洞 -->
+		<!-- 邮件发送包 -->
 		<PackageReference Include="MailKit" Version="4.7.1" />
 		<PackageReference Include="MimeKit" Version="4.7.1" />
 	</ItemGroup>
 
 	<ItemGroup>
 		<Folder Include="Extensions\" />
-		<Folder Include="Migrations\" />
 		<Folder Include="Deploy\" />
 	</ItemGroup>
 

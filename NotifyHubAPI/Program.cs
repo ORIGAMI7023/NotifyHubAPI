@@ -90,7 +90,7 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
     services.AddScoped<IEmailService, SimpleEmailService>();
     services.AddSingleton<IApiKeyService, ApiKeyService>();
 
-    // 内存缓存
+    // 内存缓存和速率限制
     services.AddMemoryCache();
     services.Configure<IpRateLimitOptions>(configuration.GetSection("IpRateLimiting"));
     services.Configure<IpRateLimitPolicies>(configuration.GetSection("IpRateLimitPolicies"));
@@ -194,7 +194,7 @@ void ConfigurePipeline(WebApplication app)
     app.MapGet("/", () => Results.Redirect("/swagger"));
 
     // 状态信息端点 - 简化版本
-    app.MapGet("/info", async (IServiceProvider serviceProvider) =>
+    app.MapGet("/info", () =>
     {
         return Results.Ok(new
         {
