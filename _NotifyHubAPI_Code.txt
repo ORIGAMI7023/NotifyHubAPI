@@ -7,9 +7,9 @@
 
 ### 根目录
 - GlobalUsings.cs (730 B)
-- NotifyHubAPI.csproj (2.1 KB)
-- Program.cs (8.7 KB)
-- appsettings.Development.json (313 B)
+- NotifyHubAPI.csproj (2.2 KB)
+- Program.cs (9.2 KB)
+- appsettings.Development.json (495 B)
 - appsettings.Production.json (3.5 KB)
 - appsettings.json (2.5 KB)
 
@@ -38,8 +38,8 @@
 
 ## 项目统计
 - 总文件数: 17
-- 总大小: 74.6 KB
-- 生成时间: 2025-09-22 10:53:23
+- 总大小: 75.4 KB
+- 生成时间: 2025-09-22 11:08:48
 - 项目路径: D:\Programing\C#\NotifyHubAPI\NotifyHubAPI
 
 ## 技术栈
@@ -98,9 +98,9 @@ global using NotifyHubAPI.Services;
 		<PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.0" />
 		<PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
 
-		<!-- Entity Framework Core 相关包 -->
+		<!-- Entity Framework Core 相关包 - 统一使用8.0版本 -->
 		<PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
-		<PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.0" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.0" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.0">
 			<PrivateAssets>all</PrivateAssets>
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -110,11 +110,13 @@ global using NotifyHubAPI.Services;
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
 
+		<!-- 健康检查相关包 -->
+		<PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="8.0.0" />
+
 		<!-- 日志相关包 -->
 		<PackageReference Include="Serilog.AspNetCore" Version="8.0.0" />
 		<PackageReference Include="Serilog.Sinks.Console" Version="5.0.0" />
 		<PackageReference Include="Serilog.Sinks.File" Version="5.0.0" />
-		<PackageReference Include="Serilog.Sinks.MSSqlServer" Version="6.5.0" />
 
 		<!-- 验证和安全相关包 -->
 		<PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.0" />
@@ -123,16 +125,15 @@ global using NotifyHubAPI.Services;
 		<!-- 速率限制包 -->
 		<PackageReference Include="AspNetCoreRateLimit" Version="5.0.0" />
 
-		<!-- JSON 处理包 -->
-		<PackageReference Include="System.Text.Json" Version="8.0.0" />
-
-		<!-- 邮件发送包 -->
-		<PackageReference Include="MailKit" Version="4.3.0" />
-		<PackageReference Include="MimeKit" Version="4.3.0" />
+		<!-- 邮件发送包 - 使用较新版本修复安全漏洞 -->
+		<PackageReference Include="MailKit" Version="4.7.1" />
+		<PackageReference Include="MimeKit" Version="4.7.1" />
 	</ItemGroup>
 
 	<ItemGroup>
 		<Folder Include="Extensions\" />
+		<Folder Include="Migrations\" />
+		<Folder Include="Deploy\" />
 	</ItemGroup>
 
 </Project>
@@ -231,18 +232,10 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
         });
     });
 
-    // ݿ
+    // ݿ - SQLite
     services.AddDbContext<NotificationDbContext>(options =>
     {
-        options.UseSqlServer(configuration.GetConnectionString("DefaultConnection"),
-            sqlOptions =>
-            {
-                sqlOptions.EnableRetryOnFailure(
-                    maxRetryCount: 3,
-                    maxRetryDelay: TimeSpan.FromSeconds(30),
-                    errorNumbersToAdd: null);
-                sqlOptions.CommandTimeout(30);
-            });
+        options.UseSqlite(configuration.GetConnectionString("DefaultConnection"));
     });
 
     // SMTP
@@ -262,7 +255,21 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
 
     // 
     services.AddHealthChecks()
-        .AddDbContextCheck<NotificationDbContext>("database")
+        .AddCheck("database", () =>
+        {
+            try
+            {
+                // 򻯵ݿ飬ʹ AddDbContextCheck
+                var connectionString = configuration.GetConnectionString("DefaultConnection");
+                return !string.IsNullOrEmpty(connectionString)
+                    ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("ݿ")
+                    : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("ݿַȱʧ");
+            }
+            catch (Exception ex)
+            {
+                return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy($"ݿʧ: {ex.Message}");
+            }
+        })
         .AddCheck("smtp", () =>
         {
             try
@@ -272,19 +279,19 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
                     ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("SMTP")
                     : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("SMTPȱʧ");
             }
-            catch
+            catch (Exception ex)
             {
-                return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("SMTPüʧ");
+                return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy($"SMTPüʧ: {ex.Message}");
             }
         })
-        .AddCheck("apikeys", serviceProvider =>
+        .AddCheck("apikeys", () =>
         {
             try
             {
-                var apiKeyService = serviceProvider.GetRequiredService<IApiKeyService>();
-                var apiKeys = apiKeyService.GetAllApiKeys();
-                return apiKeys.Count > 0
-                    ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy($"{apiKeys.Count}APIԿ")
+                var apiKeysSection = configuration.GetSection("ApiKeys");
+                var apiKeyCount = apiKeysSection.GetChildren().Count();
+                return apiKeyCount > 0
+                    ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy($"{apiKeyCount}APIԿ")
                     : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("δAPIԿ");
             }
             catch (Exception ex)
@@ -361,8 +368,10 @@ void ConfigurePipeline(WebApplication app)
     app.MapGet("/", () => Results.Redirect("/swagger"));
 
     // ״̬Ϣ˵
-    app.MapGet("/info", async (IDatabaseInitializationService dbService) =>
+    app.MapGet("/info", async (IServiceProvider serviceProvider) =>
     {
+        using var scope = serviceProvider.CreateScope();
+        var dbService = scope.ServiceProvider.GetRequiredService<IDatabaseInitializationService>();
         var stats = await dbService.GetDatabaseStatsAsync();
         return Results.Ok(new
         {
@@ -423,7 +432,16 @@ async Task EnsureDatabaseInitialized(WebApplication app)
     }
   },
   "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost;Database=NotifyHubAPI_Dev;Trusted_Connection=true;TrustServerCertificate=true;"
+    "DefaultConnection": "Data Source=notifyhub.db"
+  },
+  "SmtpSettings": {
+    "Host": "smtp.qq.com",
+    "Port": 587,
+    "UseSsl": true,
+    "Username": "2840080918@qq.com",
+    "Password": "ojqniznhexwqdhcg",
+    "FromEmail": "您的QQ邮箱@qq.com",
+    "FromName": "NotifyHub开发测试"
   }
 }
 ```
@@ -1117,8 +1135,6 @@ namespace NotifyHubAPI.Controllers
 ```csharp
 ﻿using Microsoft.EntityFrameworkCore;
 using NotifyHubAPI.Models;
-using System.Collections.Generic;
-using System.Reflection.Emit;
 
 namespace NotifyHubAPI.Data
 {
@@ -1174,8 +1190,9 @@ namespace NotifyHubAPI.Data
                 entity.Property(e => e.RequestId)
                     .HasMaxLength(50);
 
+                // SQLite使用不同的默认值语法
                 entity.Property(e => e.CreatedAt)
-                    .HasDefaultValueSql("GETUTCDATE()");
+                    .HasDefaultValueSql("datetime('now')");
 
                 // 索引
                 entity.HasIndex(e => e.Status);

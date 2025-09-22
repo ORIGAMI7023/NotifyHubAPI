@@ -89,18 +89,10 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
         });
     });
 
-    //  ˝æ›ø‚≈‰÷√
+    //  ˝æ›ø‚≈‰÷√ - SQLite
     services.AddDbContext<NotificationDbContext>(options =>
     {
-        options.UseSqlServer(configuration.GetConnectionString("DefaultConnection"),
-            sqlOptions =>
-            {
-                sqlOptions.EnableRetryOnFailure(
-                    maxRetryCount: 3,
-                    maxRetryDelay: TimeSpan.FromSeconds(30),
-                    errorNumbersToAdd: null);
-                sqlOptions.CommandTimeout(30);
-            });
+        options.UseSqlite(configuration.GetConnectionString("DefaultConnection"));
     });
 
     // SMTP≈‰÷√

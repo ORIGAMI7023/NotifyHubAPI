@@ -1,7 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using NotifyHubAPI.Models;
-using System.Collections.Generic;
-using System.Reflection.Emit;
 
 namespace NotifyHubAPI.Data
 {
@@ -57,8 +55,9 @@ namespace NotifyHubAPI.Data
                 entity.Property(e => e.RequestId)
                     .HasMaxLength(50);
 
+                // SQLite使用不同的默认值语法
                 entity.Property(e => e.CreatedAt)
-                    .HasDefaultValueSql("GETUTCDATE()");
+                    .HasDefaultValueSql("datetime('now')");
 
                 // 索引
                 entity.HasIndex(e => e.Status);
