@@ -1,8 +1,5 @@
-using NotifyHubAPI.Data;
 using NotifyHubAPI.Services;
 using NotifyHubAPI.Middleware;
-using NotifyHubAPI.BackgroundServices;
-using Microsoft.EntityFrameworkCore;
 using Serilog;
 using AspNetCoreRateLimit;
 
@@ -26,10 +23,7 @@ var app = builder.Build();
 // 配置HTTP管道
 ConfigurePipeline(app);
 
-// 确保数据库已创建并初始化
-await EnsureDatabaseInitialized(app);
-
-Log.Information("NotifyHubAPI 服务启动: {Urls}", string.Join(", ", app.Urls));
+Log.Information("NotifyHubAPI 启动完成: {Urls}", string.Join(", ", app.Urls));
 
 try
 {
@@ -55,7 +49,7 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
         {
             Title = "NotifyHub API",
             Version = "v1.0",
-            Description = "统一邮件通知API - 为多个项目提供统一邮件发送功能",
+            Description = "统一邮件通知API - 为多个项目提供统一邮件通知",
             Contact = new Microsoft.OpenApi.Models.OpenApiContact
             {
                 Name = "NotifyHub Team",
@@ -63,7 +57,7 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
             }
         });
 
-        // API Key认证Swagger配置
+        // API Key认证Swagger
         c.AddSecurityDefinition("ApiKey", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
         {
             Description = "API Key认证 (Header: X-API-Key 或 Authorization: Bearer {key})",
@@ -89,44 +83,22 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
         });
     });
 
-    // 数据库配置 - SQLite
-    services.AddDbContext<NotificationDbContext>(options =>
-    {
-        options.UseSqlite(configuration.GetConnectionString("DefaultConnection"));
-    });
-
     // SMTP配置
     services.Configure<SmtpSettings>(configuration.GetSection("SmtpSettings"));
 
-    // 注册服务
-    services.AddScoped<IEmailService, EmailService>();
+    // 注册服务 - 使用简化版本的邮件服务
+    services.AddScoped<IEmailService, SimpleEmailService>();
     services.AddSingleton<IApiKeyService, ApiKeyService>();
-    services.AddScoped<IDatabaseInitializationService, DatabaseInitializationService>();
 
-    // 缓存和速率限制
+    // 内存缓存
     services.AddMemoryCache();
     services.Configure<IpRateLimitOptions>(configuration.GetSection("IpRateLimiting"));
     services.Configure<IpRateLimitPolicies>(configuration.GetSection("IpRateLimitPolicies"));
     services.AddInMemoryRateLimiting();
     services.AddSingleton<IRateLimitConfiguration, RateLimitConfiguration>();
 
-    // 健康检查
+    // 健康检查 - 移除数据库检查
     services.AddHealthChecks()
-        .AddCheck("database", () =>
-        {
-            try
-            {
-                // 简化的数据库检查，避免使用 AddDbContextCheck
-                var connectionString = configuration.GetConnectionString("DefaultConnection");
-                return !string.IsNullOrEmpty(connectionString)
-                    ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("数据库配置正常")
-                    : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("数据库连接字符串缺失");
-            }
-            catch (Exception ex)
-            {
-                return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy($"数据库检查失败: {ex.Message}");
-            }
-        })
         .AddCheck("smtp", () =>
         {
             try
@@ -148,7 +120,7 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
                 var apiKeysSection = configuration.GetSection("ApiKeys");
                 var apiKeyCount = apiKeysSection.GetChildren().Count();
                 return apiKeyCount > 0
-                    ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy($"已配置{apiKeyCount}个API密钥")
+                    ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy($"发现{apiKeyCount}个API密钥")
                     : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("未配置API密钥");
             }
             catch (Exception ex)
@@ -157,10 +129,7 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
             }
         });
 
-    // 后台服务
-    services.AddHostedService<EmailRetryBackgroundService>();
-
-    // CORS配置
+    // CORS
     services.AddCors(options =>
     {
         options.AddPolicy("AllowOrigins", policy =>
@@ -186,7 +155,7 @@ void ConfigurePipeline(WebApplication app)
         app.UseSwaggerUI(c =>
         {
             c.SwaggerEndpoint("/swagger/v1/swagger.json", "NotifyHub API v1");
-            c.RoutePrefix = string.Empty; // 使Swagger为根路径
+            c.RoutePrefix = string.Empty; // 使Swagger成为根路径
         });
     }
     else
@@ -195,7 +164,7 @@ void ConfigurePipeline(WebApplication app)
         app.UseHsts();
     }
 
-    // 核心中间件
+    // 中间件管道
     app.UseHttpsRedirection();
     app.UseCors("AllowOrigins");
 
@@ -224,55 +193,25 @@ void ConfigurePipeline(WebApplication app)
     // 默认路由
     app.MapGet("/", () => Results.Redirect("/swagger"));
 
-    // 状态信息端点
+    // 状态信息端点 - 简化版本
     app.MapGet("/info", async (IServiceProvider serviceProvider) =>
     {
-        using var scope = serviceProvider.CreateScope();
-        var dbService = scope.ServiceProvider.GetRequiredService<IDatabaseInitializationService>();
-        var stats = await dbService.GetDatabaseStatsAsync();
         return Results.Ok(new
         {
             service = "NotifyHubAPI",
-            version = "1.0.0",
+            version = "1.0.0 (Stateless)",
             environment = app.Environment.EnvironmentName,
             timestamp = DateTime.UtcNow,
-            stats = new
+            mode = "无数据库模式",
+            status = "运行正常",
+            features = new
             {
-                totalEmails = stats.TotalEmails,
-                sentEmails = stats.SentEmails,
-                failedEmails = stats.FailedEmails,
-                pendingEmails = stats.PendingEmails
-            }
+                emailSending = true,
+                emailHistory = false,
+                retryMechanism = false,
+                persistence = false
+            },
+            message = "邮件发送功能正常，但不保存发送记录"
         });
     });
-}
-
-async Task EnsureDatabaseInitialized(WebApplication app)
-{
-    using var scope = app.Services.CreateScope();
-    var dbInitService = scope.ServiceProvider.GetRequiredService<IDatabaseInitializationService>();
-
-    try
-    {
-        // 检查数据库连接
-        var canConnect = await dbInitService.CheckDatabaseConnectionAsync();
-        if (!canConnect)
-        {
-            Log.Error("无法连接到数据库，请检查连接字符串配置");
-            throw new InvalidOperationException("数据库连接失败");
-        }
-
-        // 初始化数据库
-        await dbInitService.InitializeDatabaseAsync();
-
-        // 获取并记录统计信息
-        var stats = await dbInitService.GetDatabaseStatsAsync();
-        Log.Information("数据库统计: 总计{Total}封邮件, 成功{Sent}封, 失败{Failed}封, 待发送{Pending}封",
-            stats.TotalEmails, stats.SentEmails, stats.FailedEmails, stats.PendingEmails);
-    }
-    catch (Exception ex)
-    {
-        Log.Error(ex, "数据库初始化失败");
-        throw;
-    }
 }
