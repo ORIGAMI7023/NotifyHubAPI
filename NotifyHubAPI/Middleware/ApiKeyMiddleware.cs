@@ -167,10 +167,26 @@ namespace NotifyHubAPI.Middleware
             if (string.IsNullOrEmpty(apiKey))
                 return "Empty";
 
-            if (apiKey.Length <= 8)
+            if (apiKey.Length < 8)
+            {
+                // 小于8位全隐藏
                 return new string('*', apiKey.Length);
-
-            return apiKey.Substring(0, 4) + new string('*', apiKey.Length - 8) + apiKey.Substring(apiKey.Length - 4);
+            }
+            else if (apiKey.Length <= 20)
+            {
+                // 8-20位隐藏中间8位
+                var start = apiKey.Substring(0, 4);
+                var end = apiKey.Substring(apiKey.Length - 4);
+                return start + new string('*', 8) + end;
+            }
+            else
+            {
+                // 大于20位隐藏前后8位中间的部分
+                var start = apiKey.Substring(0, 8);
+                var end = apiKey.Substring(apiKey.Length - 8);
+                var middleLength = apiKey.Length - 16;
+                return start + new string('*', middleLength) + end;
+            }
         }
 
         /// <summary>
