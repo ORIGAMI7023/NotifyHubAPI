@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Http;
 using NotifyHubAPI.Services;
 using System.Text.Json;
+using System.Text.Encodings.Web;
 
 namespace NotifyHubAPI.Middleware
 {
@@ -23,6 +24,13 @@ namespace NotifyHubAPI.Middleware
             "/swagger/v1/swagger.json",
             "/health",
             "/api/email/health"
+        };
+
+        // JSON序列化选项 - 避免Unicode转义
+        private readonly JsonSerializerOptions _jsonOptions = new()
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping // 避免Unicode转义
         };
 
         public ApiKeyMiddleware(RequestDelegate next, ILogger<ApiKeyMiddleware> logger, IServiceProvider serviceProvider)
@@ -168,10 +176,10 @@ namespace NotifyHubAPI.Middleware
         /// <summary>
         /// 写入未授权响应
         /// </summary>
-        private static async Task WriteUnauthorizedResponse(HttpContext context, string message)
+        private async Task WriteUnauthorizedResponse(HttpContext context, string message)
         {
             context.Response.StatusCode = 401;
-            context.Response.ContentType = "application/json";
+            context.Response.ContentType = "application/json; charset=utf-8";
 
             var response = new
             {
@@ -181,11 +189,7 @@ namespace NotifyHubAPI.Middleware
                 requestId = Guid.NewGuid().ToString("N")[..8]
             };
 
-            var jsonResponse = JsonSerializer.Serialize(response, new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            });
-
+            var jsonResponse = JsonSerializer.Serialize(response, _jsonOptions);
             await context.Response.WriteAsync(jsonResponse);
         }
     }
