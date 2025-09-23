@@ -181,13 +181,15 @@ namespace NotifyHubAPI.Middleware
             context.Response.StatusCode = 401;
             context.Response.ContentType = "application/json; charset=utf-8";
 
-            var response = new
-            {
-                success = false,
-                message = message,
-                timestamp = DateTime.UtcNow,
-                requestId = Guid.NewGuid().ToString("N")[..8]
-            };
+            var errorCode = message.Contains("缺少") ?
+                ApiErrorCode.MissingApiKey :
+                ApiErrorCode.InvalidApiKey;
+
+            var response = StandardApiResponse<object>.CreateFailure(
+                message,
+                errorCode,
+                details: null
+            );
 
             var jsonResponse = JsonSerializer.Serialize(response, _jsonOptions);
             await context.Response.WriteAsync(jsonResponse);

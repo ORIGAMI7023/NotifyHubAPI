@@ -49,7 +49,7 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
         {
             Title = "NotifyHub API",
             Version = "v1.0",
-            Description = "统一邮件通知API - 为多个项目提供统一邮件通知",
+            Description = "统一邮件通知API服务 - 为多个项目提供统一邮件通知",
             Contact = new Microsoft.OpenApi.Models.OpenApiContact
             {
                 Name = "NotifyHub Team",
@@ -57,7 +57,7 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
             }
         });
 
-        // API Key认证Swagger
+        // API Key认证Swagger配置
         c.AddSecurityDefinition("ApiKey", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
         {
             Description = "API Key认证 (Header: X-API-Key 或 Authorization: Bearer {key})",
@@ -83,11 +83,10 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
         });
     });
 
-
-    // SMTP设置 - 优先从环境变量读取，配置文件作为后备
+    // SMTP配置 - 优先从环境变量获取配置值
     services.Configure<SmtpSettings>(options =>
     {
-        // 从环境变量覆盖敏感配置
+        // 从环境变量读取配置
         var smtpHost = Environment.GetEnvironmentVariable("NOTIFYHUB_SMTP_HOST");
         if (!string.IsNullOrEmpty(smtpHost))
             options.Host = smtpHost;
@@ -117,18 +116,18 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
             options.FromName = smtpFromName;
     });
 
-    // 注册服务 - 使用简化版本的邮件服务
+    // 注册服务 - 使用简化版本邮件服务
     services.AddScoped<IEmailService, SimpleEmailService>();
     services.AddSingleton<IApiKeyService, ApiKeyService>();
 
-    // 内存缓存和速率限制
+    // 内存缓存
     services.AddMemoryCache();
     services.Configure<IpRateLimitOptions>(configuration.GetSection("IpRateLimiting"));
     services.Configure<IpRateLimitPolicies>(configuration.GetSection("IpRateLimitPolicies"));
     services.AddInMemoryRateLimiting();
     services.AddSingleton<IRateLimitConfiguration, RateLimitConfiguration>();
 
-    // 健康检查 - 移除数据库检查
+    // 健康检查 - 基础检查
     services.AddHealthChecks()
         .AddCheck("smtp", () =>
         {
@@ -141,7 +140,7 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
             }
             catch (Exception ex)
             {
-                return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy($"SMTP配置检查失败: {ex.Message}");
+                return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy($"SMTP检查失败: {ex.Message}");
             }
         })
         .AddCheck("apikeys", () =>
@@ -151,8 +150,8 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
                 var apiKeysSection = configuration.GetSection("ApiKeys");
                 var apiKeyCount = apiKeysSection.GetChildren().Count();
                 return apiKeyCount > 0
-                    ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy($"发现{apiKeyCount}个API密钥")
-                    : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("未配置API密钥");
+                    ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy($"已加载{apiKeyCount}个API密钥")
+                    : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("未找到API密钥配置");
             }
             catch (Exception ex)
             {
@@ -160,7 +159,7 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
             }
         });
 
-    // CORS
+    // CORS配置
     services.AddCors(options =>
     {
         options.AddPolicy("AllowOrigins", policy =>
@@ -186,23 +185,26 @@ void ConfigurePipeline(WebApplication app)
         app.UseSwaggerUI(c =>
         {
             c.SwaggerEndpoint("/swagger/v1/swagger.json", "NotifyHub API v1");
-            c.RoutePrefix = string.Empty; // 使Swagger成为根路径
+            c.RoutePrefix = string.Empty; // 使Swagger成为默认路由
         });
     }
     else
     {
-        app.UseExceptionHandler("/Error");
+        // 生产环境不显示详细错误页面
         app.UseHsts();
     }
 
-    // 中间件管道
+    // 全局异常处理 - 必须在其他中间件之前
+    app.UseGlobalExceptionHandler();
+
+    // 基础中间件
     app.UseHttpsRedirection();
     app.UseCors("AllowOrigins");
 
-    // 速率限制
+    // 限流中间件
     app.UseIpRateLimiting();
 
-    // 自定义中间件
+    // 自定义认证中间件
     app.UseApiKeyAuthentication();
 
     // 路由和控制器
@@ -227,22 +229,32 @@ void ConfigurePipeline(WebApplication app)
     // 状态信息端点 - 简化版本
     app.MapGet("/info", () =>
     {
-        return Results.Ok(new
+        try
         {
-            service = "NotifyHubAPI",
-            version = "1.0.0 (Stateless)",
-            environment = app.Environment.EnvironmentName,
-            timestamp = DateTime.UtcNow,
-            mode = "无数据库模式",
-            status = "运行正常",
-            features = new
+            return Results.Ok(new
             {
-                emailSending = true,
-                emailHistory = false,
-                retryMechanism = false,
-                persistence = false
-            },
-            message = "邮件发送功能正常，但不保存发送记录"
-        });
+                service = "NotifyHubAPI",
+                version = "1.0.0 (Stateless)",
+                environment = app.Environment.EnvironmentName,
+                timestamp = DateTime.UtcNow,
+                mode = "无状态模式",
+                status = "运行中",
+                features = new
+                {
+                    emailSending = true,
+                    emailHistory = false,
+                    retryMechanism = false,
+                    persistence = false,
+                    globalExceptionHandling = true,
+                    standardizedResponses = true
+                },
+                message = "邮件通知服务运行正常"
+            });
+        }
+        catch (Exception ex)
+        {
+            app.Logger.LogError(ex, "获取服务信息失败");
+            return Results.Problem("服务信息获取失败");
+        }
     });
 }

@@ -15,7 +15,7 @@ def send_test_email():
     # API配置
     base_url = "https://notify.origami7023.cn"
     # api_key = "default-api-key-2024"
-    api_key = "nh-prod-7K9mP3xR8wQ2nV5ag4yQWcL8sA9dE3tY7uI2oP6qW1zX51"
+    api_key = "nh-prod-7K9mP3xR8wQ2nV5ag4yQWcL8sA9dE3tY7uI2oP6qW1zX5"
     
     # 邮件内容
     email_data = {
