@@ -1,7 +1,8 @@
-using NotifyHubAPI.Services;
-using NotifyHubAPI.Middleware;
-using Serilog;
 using AspNetCoreRateLimit;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
+using NotifyHubAPI.Middleware;
+using NotifyHubAPI.Services;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -43,6 +44,18 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
     // 基础服务
     services.AddControllers();
     services.AddEndpointsApiExplorer();
+
+    // 配置请求大小限制
+    services.Configure<IISServerOptions>(options =>
+    {
+        options.MaxRequestBodySize = configuration.GetValue<long>("Security:MaxRequestSizeBytes", 1024 * 1024);
+    });
+
+    services.Configure<KestrelServerOptions>(options =>
+    {
+        options.Limits.MaxRequestBodySize = configuration.GetValue<long>("Security:MaxRequestSizeBytes", 1024 * 1024);
+    });
+
     services.AddSwaggerGen(c =>
     {
         c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
@@ -86,7 +99,6 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
     // SMTP配置 - 优先从环境变量获取配置值
     services.Configure<SmtpSettings>(options =>
     {
-        // 从环境变量读取配置
         var smtpHost = Environment.GetEnvironmentVariable("NOTIFYHUB_SMTP_HOST");
         if (!string.IsNullOrEmpty(smtpHost))
             options.Host = smtpHost;
@@ -116,25 +128,25 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
             options.FromName = smtpFromName;
     });
 
-    // 注册服务 - 使用简化版本邮件服务
+    // 注册服务
     services.AddScoped<IEmailService, SimpleEmailService>();
     services.AddSingleton<IApiKeyService, ApiKeyService>();
 
-    // 内存缓存
+    // 内存缓存和限流
     services.AddMemoryCache();
     services.Configure<IpRateLimitOptions>(configuration.GetSection("IpRateLimiting"));
     services.Configure<IpRateLimitPolicies>(configuration.GetSection("IpRateLimitPolicies"));
     services.AddInMemoryRateLimiting();
     services.AddSingleton<IRateLimitConfiguration, RateLimitConfiguration>();
 
-    // 健康检查 - 基础检查
+    // 健康检查
     services.AddHealthChecks()
         .AddCheck("smtp", () =>
         {
             try
             {
-                var smtpSettings = configuration.GetSection("SmtpSettings").Get<SmtpSettings>();
-                return !string.IsNullOrEmpty(smtpSettings?.Host)
+                var smtpHost = Environment.GetEnvironmentVariable("NOTIFYHUB_SMTP_HOST");
+                return !string.IsNullOrEmpty(smtpHost)
                     ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("SMTP配置正常")
                     : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("SMTP配置缺失");
             }
@@ -147,10 +159,12 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
         {
             try
             {
-                var apiKeysSection = configuration.GetSection("ApiKeys");
-                var apiKeyCount = apiKeysSection.GetChildren().Count();
-                return apiKeyCount > 0
-                    ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy($"已加载{apiKeyCount}个API密钥")
+                var envVars = Environment.GetEnvironmentVariables()
+                    .Cast<System.Collections.DictionaryEntry>()
+                    .Count(kv => kv.Key.ToString()?.StartsWith("NOTIFYHUB_APIKEY_") == true);
+
+                return envVars > 0
+                    ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy($"已加载{envVars}个API密钥")
                     : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("未找到API密钥配置");
             }
             catch (Exception ex)
@@ -164,15 +178,38 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
     {
         options.AddPolicy("AllowOrigins", policy =>
         {
-            var allowedOrigins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
-                ?? new[] { "https://notify.origami7023.cn", "https://localhost:7000" };
+            var allowedOrigins = configuration.GetSection("Security:AllowedHosts").Get<string[]>()
+                ?? new[] { "https://notify.origami7023.cn" };
 
-            policy.WithOrigins(allowedOrigins)
+            // 只允许HTTPS origins (生产环境)
+            var httpsOrigins = allowedOrigins
+                .Where(origin => !origin.StartsWith("localhost"))
+                .Select(origin => origin.StartsWith("http") ? origin : $"https://{origin}")
+                .ToArray();
+
+            if (builder.Environment.IsDevelopment())
+            {
+                // 开发环境允许localhost
+                httpsOrigins = httpsOrigins.Concat(new[] { "http://localhost:3000", "https://localhost:7000" }).ToArray();
+            }
+
+            policy.WithOrigins(httpsOrigins)
                   .AllowAnyMethod()
                   .AllowAnyHeader()
                   .AllowCredentials();
         });
     });
+
+    // HTTPS重定向配置
+    if (!builder.Environment.IsDevelopment())
+    {
+        services.AddHsts(options =>
+        {
+            options.Preload = true;
+            options.IncludeSubDomains = true;
+            options.MaxAge = TimeSpan.FromDays(365);
+        });
+    }
 }
 
 void ConfigurePipeline(WebApplication app)
@@ -185,34 +222,55 @@ void ConfigurePipeline(WebApplication app)
         app.UseSwaggerUI(c =>
         {
             c.SwaggerEndpoint("/swagger/v1/swagger.json", "NotifyHub API v1");
-            c.RoutePrefix = string.Empty; // 使Swagger成为默认路由
+            c.RoutePrefix = string.Empty;
         });
     }
     else
     {
-        // 生产环境不显示详细错误页面
+        // 生产环境强制HTTPS
         app.UseHsts();
     }
 
-    // 全局异常处理 - 必须在其他中间件之前
+    // === 安全中间件层 ===
+    // 1. 全局异常处理（必须最早）
     app.UseGlobalExceptionHandler();
 
-    // 基础中间件
-    app.UseHttpsRedirection();
+    // 2. 安全头
+    if (app.Configuration.GetValue<bool>("Security:EnableSecurityHeaders", true))
+    {
+        app.UseSecurityHeaders();
+    }
+
+    // 3. 主机过滤（阻止直接IP访问）
+    if (app.Configuration.GetValue<bool>("Security:BlockDirectIpAccess", true))
+    {
+        app.UseCustomHostFiltering();
+    }
+
+    // 4. 请求验证（大小、内容类型、恶意内容）
+    app.UseRequestValidation();
+
+    // 5. HTTPS重定向
+    if (app.Configuration.GetValue<bool>("Security:RequireHttps", true))
+    {
+        app.UseHttpsRedirection();
+    }
+
+    // 6. CORS
     app.UseCors("AllowOrigins");
 
-    // 限流中间件
+    // 7. 限流（在认证之前）
     app.UseIpRateLimiting();
 
-    // 自定义认证中间件
+    // 8. API密钥认证
     app.UseApiKeyAuthentication();
 
-    // 路由和控制器
+    // === 应用程序中间件层 ===
     app.UseRouting();
     app.UseAuthorization();
     app.MapControllers();
 
-    // 健康检查端点
+    // === 健康检查和信息端点 ===
     app.MapHealthChecks("/health");
     app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
     {
@@ -223,10 +281,22 @@ void ConfigurePipeline(WebApplication app)
         Predicate = _ => false
     });
 
-    // 默认路由
-    app.MapGet("/", () => Results.Redirect("/swagger"));
+    // 默认路由 - 仅开发环境显示Swagger
+    if (app.Environment.IsDevelopment())
+    {
+        app.MapGet("/", () => Results.Redirect("/swagger"));
+    }
+    else
+    {
+        app.MapGet("/", () => Results.Json(new
+        {
+            message = "NotifyHub API",
+            status = "运行中",
+            timestamp = DateTime.UtcNow
+        }));
+    }
 
-    // 状态信息端点 - 简化版本
+    // 状态信息端点
     app.MapGet("/info", () =>
     {
         try
@@ -234,21 +304,24 @@ void ConfigurePipeline(WebApplication app)
             return Results.Ok(new
             {
                 service = "NotifyHubAPI",
-                version = "1.0.0 (Stateless)",
+                version = "1.0.0 (Secure)",
                 environment = app.Environment.EnvironmentName,
                 timestamp = DateTime.UtcNow,
-                mode = "无状态模式",
-                status = "运行中",
+                security = new
+                {
+                    httpsOnly = app.Configuration.GetValue<bool>("Security:RequireHttps", true),
+                    hostFiltering = app.Configuration.GetValue<bool>("Security:BlockDirectIpAccess", true),
+                    rateLimiting = true,
+                    securityHeaders = app.Configuration.GetValue<bool>("Security:EnableSecurityHeaders", true),
+                    requestValidation = true
+                },
                 features = new
                 {
                     emailSending = true,
                     emailHistory = false,
                     retryMechanism = false,
-                    persistence = false,
-                    globalExceptionHandling = true,
-                    standardizedResponses = true
-                },
-                message = "邮件通知服务运行正常"
+                    persistence = false
+                }
             });
         }
         catch (Exception ex)
@@ -256,5 +329,5 @@ void ConfigurePipeline(WebApplication app)
             app.Logger.LogError(ex, "获取服务信息失败");
             return Results.Problem("服务信息获取失败");
         }
-    });
+    }).RequireRateLimiting("DefaultPolicy");
 }
