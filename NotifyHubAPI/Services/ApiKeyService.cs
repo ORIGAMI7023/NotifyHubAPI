@@ -35,23 +35,39 @@ namespace NotifyHubAPI.Services
             _logger = logger;
             _apiKeys = new Dictionary<string, string>();
 
-            // 从配置文件加载API密钥
-            var apiKeysSection = configuration.GetSection("ApiKeys");
-            foreach (var kvp in apiKeysSection.GetChildren())
-            {
-                var projectName = kvp.Key;
-                var apiKey = kvp.Value;
-
-                if (!string.IsNullOrEmpty(apiKey))
-                {
-                    _apiKeys[apiKey] = projectName;
-                    _logger.LogInformation("已加载API密钥配置，项目: {ProjectName}", projectName);
-                }
-            }
+            // 只从环境变量读取，不再使用配置文件作为后备
+            LoadFromEnvironmentVariables();
 
             if (_apiKeys.Count == 0)
             {
-                _logger.LogWarning("未找到任何API密钥配置");
+                var errorMessage = "严重错误：未找到任何环境变量中的API密钥配置。请检查以下环境变量是否正确设置：NOTIFYHUB_APIKEY_DEFAULT, NOTIFYHUB_APIKEY_FMS_DATA_PROCESSOR";
+                _logger.LogError(errorMessage);
+                throw new InvalidOperationException(errorMessage);
+            }
+
+            _logger.LogInformation("已从环境变量加载 {Count} 个API密钥配置", _apiKeys.Count);
+        }
+
+        private void LoadFromEnvironmentVariables()
+        {
+            var envVars = Environment.GetEnvironmentVariables()
+                .Cast<System.Collections.DictionaryEntry>()
+                .Where(kv => kv.Key.ToString()?.StartsWith("NOTIFYHUB_APIKEY_DEFAULT") == true)
+                .ToList();
+
+            foreach (var envVar in envVars)
+            {
+                var key = envVar.Key.ToString();
+                var value = envVar.Value?.ToString();
+
+                if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(value))
+                    continue;
+
+                // 提取项目名称: NOTIFYHUB_APIKEY_DEFAULT -> DEFAULT
+                var projectName = key.Substring("NOTIFYHUB_APIKEY_DEFAULT".Length);
+
+                _apiKeys[value] = projectName;
+                _logger.LogInformation("已从环境变量加载API密钥，项目: {ProjectName}", projectName);
             }
         }
 
@@ -64,7 +80,8 @@ namespace NotifyHubAPI.Services
 
             if (!isValid)
             {
-                _logger.LogWarning("无效的API密钥访问尝试: {ApiKey}", apiKey[..Math.Min(8, apiKey.Length)] + "...");
+                _logger.LogWarning("无效的API密钥访问尝试: {ApiKey}",
+                    apiKey.Length > 8 ? apiKey[..8] + "..." : apiKey);
             }
 
             return isValid;
@@ -80,7 +97,6 @@ namespace NotifyHubAPI.Services
 
         public Dictionary<string, string> GetAllApiKeys()
         {
-            // 返回项目名到API密钥的映射，用于管理界面
             return _apiKeys.ToDictionary(kvp => kvp.Value, kvp => kvp.Key);
         }
     }

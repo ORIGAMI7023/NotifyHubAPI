@@ -14,16 +14,16 @@
 
 1. **X-API-Key Header**
 ```http
-X-API-Key: default-api-key-2024
+X-API-Key: nh-prod-7K9mP3xR8wQ2nV5ag4yQWcL8sA9dE3tY7uI2oP6qW1zX5
 ```
 
 2. **Authorization Bearer Token**
 ```http
-Authorization: Bearer default-api-key-2024
+Authorization: Bearer nh-prod-7K9mP3xR8wQ2nV5ag4yQWcL8sA9dE3tY7uI2oP6qW1zX5
 ```
 
 ### 可用API密钥
-- `DEFAULT`: `default-api-key-2024`
+- `DEFAULT`: `nh-prod-7K9mP3xR8wQ2nV5ag4yQWcL8sA9dE3tY7uI2oP6qW1zX5`
 
 ---
 
@@ -92,7 +92,7 @@ Authorization: Bearer default-api-key-2024
 ```bash
 curl -X POST "https://notify.origami7023.cn/api/email/send" \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: default-api-key-2024" \
+  -H "X-API-Key: nh-prod-7K9mP3xR8wQ2nV5ag4yQWcL8sA9dE3tY7uI2oP6qW1zX5" \
   -d '{
     "to": ["test@example.com"],
     "subject": "测试邮件",
@@ -129,7 +129,7 @@ curl -X POST "https://notify.origami7023.cn/api/email/send" \
 **cURL示例**
 ```bash
 curl -X GET "https://notify.origami7023.cn/api/email/health" \
-  -H "X-API-Key: default-api-key-2024"
+  -H "X-API-Key: nh-prod-7K9mP3xR8wQ2nV5ag4yQWcL8sA9dE3tY7uI2oP6qW1zX5"
 ```
 
 ---
@@ -231,7 +231,7 @@ def send_email():
     url = "https://notify.origami7023.cn/api/email/send"
     headers = {
         "Content-Type": "application/json",
-        "X-API-Key": "default-api-key-2024"
+        "X-API-Key": "nh-prod-7K9mP3xR8wQ2nV5ag4yQWcL8sA9dE3tY7uI2oP6qW1zX5"
     }
     data = {
         "to": ["recipient@example.com"],
@@ -251,7 +251,7 @@ async function sendEmail() {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'X-API-Key': 'default-api-key-2024'
+            'X-API-Key': 'nh-prod-7K9mP3xR8wQ2nV5ag4yQWcL8sA9dE3tY7uI2oP6qW1zX5'
         },
         body: JSON.stringify({
             to: ['recipient@example.com'],
@@ -279,7 +279,7 @@ $data = [
 $options = [
     'http' => [
         'header' => "Content-type: application/json\r\n" .
-                   "X-API-Key: default-api-key-2024\r\n",
+                   "X-API-Key: nh-prod-7K9mP3xR8wQ2nV5ag4yQWcL8sA9dE3tY7uI2oP6qW1zX5\r\n",
         'method' => 'POST',
         'content' => json_encode($data)
     ]

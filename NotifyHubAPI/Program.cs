@@ -83,8 +83,39 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
         });
     });
 
-    // SMTP配置
-    services.Configure<SmtpSettings>(configuration.GetSection("SmtpSettings"));
+
+    // SMTP设置 - 优先从环境变量读取，配置文件作为后备
+    services.Configure<SmtpSettings>(options =>
+    {
+        // 从环境变量覆盖敏感配置
+        var smtpHost = Environment.GetEnvironmentVariable("NOTIFYHUB_SMTP_HOST");
+        if (!string.IsNullOrEmpty(smtpHost))
+            options.Host = smtpHost;
+
+        var smtpPort = Environment.GetEnvironmentVariable("NOTIFYHUB_SMTP_PORT");
+        if (!string.IsNullOrEmpty(smtpPort) && int.TryParse(smtpPort, out var port))
+            options.Port = port;
+
+        var smtpUseSsl = Environment.GetEnvironmentVariable("NOTIFYHUB_SMTP_USESSL");
+        if (!string.IsNullOrEmpty(smtpUseSsl) && bool.TryParse(smtpUseSsl, out var useSsl))
+            options.UseSsl = useSsl;
+
+        var smtpUsername = Environment.GetEnvironmentVariable("NOTIFYHUB_SMTP_USERNAME");
+        if (!string.IsNullOrEmpty(smtpUsername))
+            options.Username = smtpUsername;
+
+        var smtpPassword = Environment.GetEnvironmentVariable("NOTIFYHUB_SMTP_PASSWORD");
+        if (!string.IsNullOrEmpty(smtpPassword))
+            options.Password = smtpPassword;
+
+        var smtpFromEmail = Environment.GetEnvironmentVariable("NOTIFYHUB_SMTP_FROMEMAIL");
+        if (!string.IsNullOrEmpty(smtpFromEmail))
+            options.FromEmail = smtpFromEmail;
+
+        var smtpFromName = Environment.GetEnvironmentVariable("NOTIFYHUB_SMTP_FROMNAME");
+        if (!string.IsNullOrEmpty(smtpFromName))
+            options.FromName = smtpFromName;
+    });
 
     // 注册服务 - 使用简化版本的邮件服务
     services.AddScoped<IEmailService, SimpleEmailService>();

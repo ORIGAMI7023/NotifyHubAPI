@@ -9,6 +9,17 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+	  <Compile Remove="Deploy\**" />
+	  <Compile Remove="Extensions\**" />
+	  <Content Remove="Deploy\**" />
+	  <Content Remove="Extensions\**" />
+	  <EmbeddedResource Remove="Deploy\**" />
+	  <EmbeddedResource Remove="Extensions\**" />
+	  <None Remove="Deploy\**" />
+	  <None Remove="Extensions\**" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<!-- ASP.NET Core 相关包 -->
 		<PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.0" />
 		<PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
@@ -34,8 +45,9 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<Folder Include="Extensions\" />
-		<Folder Include="Deploy\" />
+	  <Content Update="web.config">
+	    <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+	  </Content>
 	</ItemGroup>
 
 </Project>
