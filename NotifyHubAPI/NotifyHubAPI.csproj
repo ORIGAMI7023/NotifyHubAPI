@@ -45,6 +45,9 @@
 	</ItemGroup>
 
 	<ItemGroup>
+	  <Content Update="appsettings.Development.json">
+	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+	  </Content>
 	  <Content Update="web.config">
 	    <CopyToOutputDirectory>Always</CopyToOutputDirectory>
 	  </Content>
