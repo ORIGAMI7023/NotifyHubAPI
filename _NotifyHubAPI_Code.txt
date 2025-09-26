@@ -8,7 +8,7 @@
 ### 根目录
 - GlobalUsings.cs (652 B)
 - NotifyHubAPI.csproj (1.9 KB)
-- Program.cs (11.1 KB)
+- Program.cs (11.0 KB)
 - appsettings.Development.json (603 B)
 - appsettings.Production.json (925 B)
 - appsettings.json (3.5 KB)
@@ -18,6 +18,7 @@
 
 ### Middleware
 - Middleware\ApiKeyMiddleware.cs (8.0 KB)
+- Middleware\EnhancedSecurityMiddleware.cs (14.2 KB)
 - Middleware\GlobalExceptionMiddleware.cs (7.4 KB)
 - Middleware\HostFilteringMiddleware.cs (3.8 KB)
 - Middleware\RequestValidationMiddleware.cs (7.2 KB)
@@ -33,14 +34,14 @@
 
 ### Services
 - Services\ApiKeyService.cs (3.6 KB)
-- Services\EmailService.cs (5.5 KB)
+- Services\EmailService.cs (8.6 KB)
 - Services\IEmailService.cs (2.3 KB)
 - Services\SmtpSettings.cs (473 B)
 
 ## 项目统计
-- 总文件数: 22
-- 总大小: 86.4 KB
-- 生成时间: 2025-09-26 21:22:51
+- 总文件数: 23
+- 总大小: 103.5 KB
+- 生成时间: 2025-09-26 21:59:01
 - 项目路径: D:\Programing\C#\NotifyHubAPI\NotifyHubAPI
 
 ## 技术栈
@@ -150,12 +151,10 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 
 var builder = WebApplication.CreateBuilder(args);
 
-//  Serilog
+// Serilog - ʹļظ
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration)
     .Enrich.FromLogContext()
-    .WriteTo.Console()
-    .WriteTo.File("logs/notifyhub-.log", rollingInterval: RollingInterval.Day)
     .CreateLogger();
 
 builder.Host.UseSerilog();
@@ -168,7 +167,7 @@ var app = builder.Build();
 // HTTPܵ
 ConfigurePipeline(app);
 
-Log.Information("NotifyHubAPI : {Urls}", string.Join(", ", app.Urls));
+Log.Information("NotifyHubAPI ɣַ: {Urls}", string.Join(", ", app.Urls));
 
 try
 {
@@ -276,7 +275,7 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
     services.AddScoped<IEmailService, SimpleEmailService>();
     services.AddSingleton<IApiKeyService, ApiKeyService>();
 
-    // ڴ滺
+    // ƺͻ
     services.AddMemoryCache();
     services.Configure<IpRateLimitOptions>(configuration.GetSection("IpRateLimiting"));
     services.Configure<IpRateLimitPolicies>(configuration.GetSection("IpRateLimitPolicies"));
@@ -309,7 +308,7 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
 
                 return envVars > 0
                     ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy($"Ѽ{envVars}APIԿ")
-                    : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("δҵAPIԿ");
+                    : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("δ⵽APIԿ");
             }
             catch (Exception ex)
             {
@@ -376,11 +375,11 @@ void ConfigurePipeline(WebApplication app)
     }
 
     // === ȫм ===
-    // 1. ȫ쳣磩
+    // 1. ȫ쳣㣩
     app.UseGlobalExceptionHandler();
 
-    // 2. ȫɨ⣨֮ǰ
-    app.UseSecurityScanDetection();
+    // 2. ǿȫ⣨ԭİȫɨ⣩
+    app.UseEnhancedSecurity();
 
     // 3. ȫͷ
     if (app.Configuration.GetValue<bool>("Security:EnableSecurityHeaders", true))
@@ -394,7 +393,7 @@ void ConfigurePipeline(WebApplication app)
         app.UseCustomHostFiltering();
     }
 
-    // 5. ֤С͡ݣ
+    // 5. ֤СУ飩
     app.UseRequestValidation();
 
     // 6. HTTPSض
@@ -417,7 +416,7 @@ void ConfigurePipeline(WebApplication app)
     app.UseAuthorization();
     app.MapControllers();
 
-    // === Ϣ˵ ===
+    // === غϢ˵ ===
     app.MapHealthChecks("/health");
     app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
     {
@@ -1168,6 +1167,394 @@ namespace NotifyHubAPI.Middleware
         public static IApplicationBuilder UseApiKeyAuthentication(this IApplicationBuilder builder)
         {
             return builder.UseMiddleware<ApiKeyMiddleware>();
+        }
+    }
+}
+```
+
+#### 文件: Middleware\EnhancedSecurityMiddleware.cs
+```csharp
+﻿using Microsoft.Extensions.Caching.Memory;
+using System.Net;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+
+namespace NotifyHubAPI.Middleware
+{
+    /// <summary>
+    /// 增强版安全中间件 - 路径黑名单检测和IP封禁
+    /// </summary>
+    public class EnhancedSecurityMiddleware
+    {
+        private readonly RequestDelegate _next;
+        private readonly ILogger<EnhancedSecurityMiddleware> _logger;
+        private readonly IMemoryCache _cache;
+
+        // 已知漏洞探测路径黑名单
+        private readonly HashSet<string> _blacklistedPaths = new(StringComparer.OrdinalIgnoreCase)
+        {
+            // Java/Spring 相关
+            "/solr/admin/collections",
+            "/actuator/health",
+            "/actuator/env",
+            "/actuator/beans",
+            "/actuator/configprops",
+            "/druid/index.html",
+            "/druid/websession.json",
+            
+            // VMware 相关
+            "/websso/SAML2/SSO/vsphere.local",
+            "/ui/login",
+            "/rest/appliance/access/ssh",
+            
+            // 商业软件漏洞
+            "/smartbi/vision/RMIServlet",
+            "/suite-api/",
+            "/uapjs/jsinvoke/",
+            "/webapi/entry.cgi",
+            
+            // 常见CMS和框架
+            "/wp-admin/",
+            "/wp-login.php",
+            "/admin/",
+            "/manager/text/list",
+            "/console/",
+            "/phpmyadmin/",
+            
+            // 配置文件探测
+            "/.env",
+            "/.git/config",
+            "/web.config",
+            "/config.php",
+            "/phpinfo.php",
+            "/info.php",
+            
+            // 中间件探测
+            "/jenkins/login",
+            "/grafana/login",
+            "/kibana/",
+            "/elasticsearch/_cluster/health",
+            "/redis/info",
+            "/nacos/v1/auth/login",
+            
+            // 容器和云服务
+            "/docker/containers/json",
+            "/kubernetes/api/v1",
+            "/aws/credentials",
+            "/azure/metadata/instance",
+            
+            // 数据库探测
+            "/mysql/",
+            "/mssql/",
+            "/oracle/",
+            "/postgres/",
+            "/mongodb/",
+            
+            // 应用服务器
+            "/weblogic/console",
+            "/jboss/management",
+            "/tomcat/manager",
+            "/glassfish/common/index.jsf",
+            "/wildfly/console"
+        };
+
+        // 恶意载荷模式
+        private readonly Regex[] _maliciousPatterns = new[]
+        {
+            // Log4Shell 和 JNDI 注入
+            new Regex(@"\$\{jndi:", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            new Regex(@"\$\{.*:.*\}", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            
+            // XSS 载荷
+            new Regex(@"<script.*?>", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            new Regex(@"javascript:", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            new Regex(@"on\w+\s*=", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            
+            // SQL注入
+            new Regex(@"union.*select", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            new Regex(@"drop.*table", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            new Regex(@"insert.*into", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            new Regex(@"delete.*from", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            
+            // 路径穿越
+            new Regex(@"\.\.[\\/]", RegexOptions.Compiled),
+            new Regex(@"%2e%2e", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            new Regex(@"\.\.%2f", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            
+            // 命令注入
+            new Regex(@"[;&|`].*(?:cat|ls|ps|id|whoami|uname)", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            new Regex(@"(?:wget|curl|nc|netcat).*http", RegexOptions.IgnoreCase | RegexOptions.Compiled)
+        };
+
+        // 恶意User-Agent模式
+        private readonly string[] _maliciousUserAgents = new[]
+        {
+            "sqlmap", "nmap", "masscan", "nikto", "dirb", "gobuster", "dirbuster",
+            "burp", "owasp", "metasploit", "nessus", "openvas", "acunetix",
+            "w3af", "skipfish", "arachni", "nuclei", "httpx", "subfinder",
+            "zgrab", "shodan", "censys", "fofa", "zoomeye"
+        };
+
+        // 封禁配置
+        private readonly TimeSpan _blacklistBanDuration = TimeSpan.FromDays(1);    // 黑名单路径封禁1天
+        private readonly TimeSpan _maliciousBanDuration = TimeSpan.FromHours(6);   // 恶意载荷封禁6小时
+        private readonly TimeSpan _scannerBanDuration = TimeSpan.FromHours(2);     // 扫描器封禁2小时
+        private readonly int _maxViolationsBeforeBan = 3;                          // 3次违规后封禁
+
+        public EnhancedSecurityMiddleware(
+            RequestDelegate next,
+            ILogger<EnhancedSecurityMiddleware> logger,
+            IMemoryCache cache)
+        {
+            _next = next;
+            _logger = logger;
+            _cache = cache;
+        }
+
+        public async Task InvokeAsync(HttpContext context)
+        {
+            var clientIp = GetTrustedClientIp(context);
+
+            // 检查IP是否已被封禁
+            if (IsIpBanned(clientIp))
+            {
+                await HandleBannedIp(context, clientIp);
+                return;
+            }
+
+            var path = context.Request.Path.Value ?? "";
+            var userAgent = context.Request.Headers.UserAgent.FirstOrDefault() ?? "";
+            var queryString = context.Request.QueryString.Value ?? "";
+            var referer = context.Request.Headers.Referer.FirstOrDefault() ?? "";
+
+            // 1. 检查黑名单路径 - 立即封禁1天
+            if (IsBlacklistedPath(path))
+            {
+                await BanIpAndRespond(context, clientIp, _blacklistBanDuration, "黑名单路径访问", path);
+                return;
+            }
+
+            // 2. 检查恶意载荷 - 封禁6小时
+            if (ContainsMaliciousPayload(path, queryString, userAgent, referer))
+            {
+                await BanIpAndRespond(context, clientIp, _maliciousBanDuration, "恶意载荷检测", path);
+                return;
+            }
+
+            // 3. 检查扫描器User-Agent - 累计违规后封禁
+            if (IsMaliciousUserAgent(userAgent))
+            {
+                if (await IncrementViolationAndCheckBan(clientIp, "scanner"))
+                {
+                    await BanIpAndRespond(context, clientIp, _scannerBanDuration, "扫描器检测", userAgent);
+                    return;
+                }
+            }
+
+            // 4. 检查异常行为模式
+            if (await DetectAbnormalBehavior(context, clientIp))
+            {
+                if (await IncrementViolationAndCheckBan(clientIp, "abnormal"))
+                {
+                    await BanIpAndRespond(context, clientIp, _maliciousBanDuration, "异常行为模式", path);
+                    return;
+                }
+            }
+
+            await _next(context);
+        }
+
+        /// <summary>
+        /// 获取可信的客户端IP - 不完全信任X-Forwarded-For
+        /// </summary>
+        private string GetTrustedClientIp(HttpContext context)
+        {
+            var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "Unknown";
+
+            // 只有在已知代理环境下才考虑X-Forwarded-For
+            var forwardedFor = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(forwardedFor))
+            {
+                var firstIp = forwardedFor.Split(',')[0].Trim();
+                // 基本验证IP格式
+                if (IPAddress.TryParse(firstIp, out _))
+                {
+                    // 记录原始IP用于审计
+                    _logger.LogDebug("使用X-Forwarded-For IP: {ForwardedIp}, 连接IP: {RemoteIp}", firstIp, remoteIp);
+                    return firstIp;
+                }
+            }
+
+            return remoteIp;
+        }
+
+        /// <summary>
+        /// 检查路径是否在黑名单中
+        /// </summary>
+        private bool IsBlacklistedPath(string path)
+        {
+            return _blacklistedPaths.Any(blacklisted =>
+                path.StartsWith(blacklisted, StringComparison.OrdinalIgnoreCase) ||
+                path.Contains(blacklisted, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// 检查是否包含恶意载荷
+        /// </summary>
+        private bool ContainsMaliciousPayload(params string[] inputs)
+        {
+            foreach (var input in inputs)
+            {
+                if (string.IsNullOrEmpty(input)) continue;
+
+                foreach (var pattern in _maliciousPatterns)
+                {
+                    if (pattern.IsMatch(input))
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 检查是否为恶意User-Agent
+        /// </summary>
+        private bool IsMaliciousUserAgent(string userAgent)
+        {
+            if (string.IsNullOrEmpty(userAgent)) return false;
+
+            return _maliciousUserAgents.Any(malicious =>
+                userAgent.Contains(malicious, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// 检测异常行为模式
+        /// </summary>
+        private async Task<bool> DetectAbnormalBehavior(HttpContext context, string clientIp)
+        {
+            var path = context.Request.Path.Value ?? "";
+
+            // 检查是否频繁访问不存在的路径
+            if (context.Response.StatusCode == 404)
+            {
+                var key = $"404_count_{clientIp}";
+                var count = _cache.Get<int>(key);
+                _cache.Set(key, count + 1, TimeSpan.FromMinutes(10));
+
+                // 10分钟内超过20个404
+                if (count > 20)
+                {
+                    return true;
+                }
+            }
+
+            // 检查是否在短时间内访问多个敏感路径
+            var sensitivePatterns = new[] { "/admin", "/api", "/config", "/login", "/auth" };
+            if (sensitivePatterns.Any(pattern => path.Contains(pattern, StringComparison.OrdinalIgnoreCase)))
+            {
+                var key = $"sensitive_access_{clientIp}";
+                var count = _cache.Get<int>(key);
+                _cache.Set(key, count + 1, TimeSpan.FromMinutes(5));
+
+                // 5分钟内访问超过10个敏感路径
+                if (count > 10)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 增加违规计数并检查是否需要封禁
+        /// </summary>
+        private async Task<bool> IncrementViolationAndCheckBan(string clientIp, string violationType)
+        {
+            var key = $"violation_{violationType}_{clientIp}";
+            var count = _cache.Get<int>(key);
+            var newCount = count + 1;
+            _cache.Set(key, newCount, TimeSpan.FromHours(1));
+
+            _logger.LogWarning("IP违规计数增加: {IP}, 类型: {Type}, 次数: {Count}",
+                clientIp, violationType, newCount);
+
+            return newCount >= _maxViolationsBeforeBan;
+        }
+
+        /// <summary>
+        /// 检查IP是否已被封禁
+        /// </summary>
+        private bool IsIpBanned(string clientIp)
+        {
+            var banKey = $"banned_{clientIp}";
+            return _cache.TryGetValue(banKey, out _);
+        }
+
+        /// <summary>
+        /// 封禁IP并返回响应
+        /// </summary>
+        private async Task BanIpAndRespond(HttpContext context, string clientIp, TimeSpan duration, string reason, string detail)
+        {
+            // 设置封禁
+            var banKey = $"banned_{clientIp}";
+            var banInfo = new
+            {
+                Reason = reason,
+                Detail = detail,
+                BannedAt = DateTime.UtcNow,
+                ExpiresAt = DateTime.UtcNow.Add(duration)
+            };
+            _cache.Set(banKey, banInfo, duration);
+
+            // 记录封禁日志
+            _logger.LogWarning("IP已被封禁: {IP}, 原因: {Reason}, 详情: {Detail}, 持续时间: {Duration}",
+                clientIp, reason, SanitizeLogInput(detail), duration);
+
+            // 返回403响应
+            await WriteSecurityResponse(context, 403, "Access Denied");
+        }
+
+        /// <summary>
+        /// 处理已封禁IP的请求
+        /// </summary>
+        private async Task HandleBannedIp(HttpContext context, string clientIp)
+        {
+            _logger.LogDebug("已封禁IP尝试访问: {IP}, 路径: {Path}", clientIp, context.Request.Path);
+            await WriteSecurityResponse(context, 403, "Access Denied");
+        }
+
+        /// <summary>
+        /// 写入安全响应
+        /// </summary>
+        private static async Task WriteSecurityResponse(HttpContext context, int statusCode, string message)
+        {
+            context.Response.StatusCode = statusCode;
+            context.Response.ContentType = "text/plain";
+            await context.Response.WriteAsync(message);
+        }
+
+        /// <summary>
+        /// 清理日志输入，防止日志注入
+        /// </summary>
+        private static string SanitizeLogInput(string input)
+        {
+            if (string.IsNullOrEmpty(input)) return input;
+
+            return Regex.Replace(input, @"[\r\n\t]", "")
+                       .Replace("${", "[FILTERED]")
+                       .Substring(0, Math.Min(input.Length, 200));
+        }
+    }
+
+    /// <summary>
+    /// 增强安全中间件扩展方法
+    /// </summary>
+    public static class EnhancedSecurityMiddlewareExtensions
+    {
+        public static IApplicationBuilder UseEnhancedSecurity(this IApplicationBuilder builder)
+        {
+            return builder.UseMiddleware<EnhancedSecurityMiddleware>();
         }
     }
 }
@@ -2477,6 +2864,9 @@ namespace NotifyHubAPI.Services
                 // 直接发送邮件，不保存到数据库
                 await SendEmailInternalAsync(emailRequest, cancellationToken);
 
+                // 记录邮件发送成功日志
+                LogEmailSent(emailId, emailRequest, apiKey, requestId, true, null);
+
                 _logger.LogInformation("邮件发送成功，EmailId: {EmailId}, RequestId: {RequestId}", emailId, requestId);
 
                 return new EmailSendResponse
@@ -2488,6 +2878,9 @@ namespace NotifyHubAPI.Services
             }
             catch (Exception ex)
             {
+                // 记录邮件发送失败日志（API密钥已验证通过）
+                LogEmailSent(emailId, emailRequest, apiKey, requestId, false, ex.Message);
+
                 _logger.LogError(ex, "邮件发送失败，EmailId: {EmailId}, RequestId: {RequestId}", emailId, requestId);
 
                 return new EmailSendResponse
@@ -2497,6 +2890,64 @@ namespace NotifyHubAPI.Services
                     Message = $"邮件发送失败: {ex.Message}"
                 };
             }
+        }
+
+        /// <summary>
+        /// 记录邮件发送结果的详细日志 - 直接写入独立文件
+        /// </summary>
+        private void LogEmailSent(Guid emailId, EmailRequest emailRequest, string apiKey, string requestId, bool isSuccess, string? errorMessage = null)
+        {
+            var projectName = GetProjectNameFromApiKey(apiKey);
+            var recipientCount = (emailRequest.To?.Count ?? 0) +
+                               (emailRequest.Cc?.Count ?? 0) +
+                               (emailRequest.Bcc?.Count ?? 0);
+
+            var status = isSuccess ? "成功" : "失败";
+            var logLine = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] 邮件发送{status} | EmailId: {emailId} | RequestId: {requestId} | Project: {projectName} | " +
+                         $"Category: {emailRequest.Category} | Subject: {emailRequest.Subject} | " +
+                         $"To: {(emailRequest.To != null ? string.Join(", ", emailRequest.To) : "")} | " +
+                         $"Cc: {(emailRequest.Cc != null ? string.Join(", ", emailRequest.Cc) : "")} | " +
+                         $"Bcc: {(emailRequest.Bcc != null ? $"[{emailRequest.Bcc.Count} recipients]" : "")} | " +
+                         $"Recipients: {recipientCount} | Priority: {emailRequest.Priority} | IsHtml: {emailRequest.IsHtml} | " +
+                         $"BodyLength: {emailRequest.Body?.Length ?? 0} | From: {_smtpSettings.FromEmail} | " +
+                         $"SentAt: {DateTime.UtcNow:O}";
+
+            // 如果是失败状态，添加错误信息
+            if (!isSuccess && !string.IsNullOrEmpty(errorMessage))
+            {
+                logLine += $" | Error: {errorMessage}";
+            }
+
+            // 直接写入独立的邮件日志文件
+            try
+            {
+                var logDirectory = "logs";
+                if (!Directory.Exists(logDirectory))
+                {
+                    Directory.CreateDirectory(logDirectory);
+                }
+
+                var logFileName = Path.Combine(logDirectory, $"email-sent-{DateTime.Now:yyyyMMdd}.log");
+                File.AppendAllText(logFileName, logLine + Environment.NewLine);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "写入邮件发送日志失败");
+            }
+        }
+
+        /// <summary>
+        /// 从API密钥获取项目名称（简化版）
+        /// </summary>
+        private string GetProjectNameFromApiKey(string apiKey)
+        {
+            // 简单的项目识别逻辑
+            if (apiKey.Contains("DEFAULT"))
+                return "DEFAULT";
+            if (apiKey.Contains("FMS"))
+                return "FMS_DATA_PROCESSOR";
+
+            return "UNKNOWN";
         }
 
         public Task<bool> RetryEmailAsync(Guid emailId, CancellationToken cancellationToken = default)

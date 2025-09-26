@@ -233,8 +233,8 @@ void ConfigurePipeline(WebApplication app)
     // 1. 全局异常处理（最外层）
     app.UseGlobalExceptionHandler();
 
-    // 2. 安全扫描检测（认证之前）
-    app.UseSecurityScanDetection();
+    // 2. 增强安全检测（替代原来的安全扫描检测）
+    app.UseEnhancedSecurity();
 
     // 3. 安全头设置
     if (app.Configuration.GetValue<bool>("Security:EnableSecurityHeaders", true))
