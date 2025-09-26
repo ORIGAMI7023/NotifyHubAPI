@@ -1,17 +1,15 @@
+using NotifyHubAPI.Services;
+using NotifyHubAPI.Middleware;
+using Serilog;
 using AspNetCoreRateLimit;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
-using NotifyHubAPI.Middleware;
-using NotifyHubAPI.Services;
-using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 配置 Serilog
+// 配置Serilog - 仅使用配置文件，避免重复
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration)
     .Enrich.FromLogContext()
-    .WriteTo.Console()
-    .WriteTo.File("logs/notifyhub-.log", rollingInterval: RollingInterval.Day)
     .CreateLogger();
 
 builder.Host.UseSerilog();
@@ -24,7 +22,7 @@ var app = builder.Build();
 // 配置HTTP管道
 ConfigurePipeline(app);
 
-Log.Information("NotifyHubAPI 启动完成: {Urls}", string.Join(", ", app.Urls));
+Log.Information("NotifyHubAPI 服务启动完成，监听地址: {Urls}", string.Join(", ", app.Urls));
 
 try
 {
@@ -45,7 +43,7 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
     services.AddControllers();
     services.AddEndpointsApiExplorer();
 
-    // 配置请求大小限制
+    // 请求大小限制
     services.Configure<IISServerOptions>(options =>
     {
         options.MaxRequestBodySize = configuration.GetValue<long>("Security:MaxRequestSizeBytes", 1024 * 1024);
@@ -62,7 +60,7 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
         {
             Title = "NotifyHub API",
             Version = "v1.0",
-            Description = "统一邮件通知API服务 - 为多个项目提供统一邮件通知",
+            Description = "统一邮件通知API - 为多个项目提供统一邮件通知服务",
             Contact = new Microsoft.OpenApi.Models.OpenApiContact
             {
                 Name = "NotifyHub Team",
@@ -96,7 +94,7 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
         });
     });
 
-    // SMTP配置 - 优先从环境变量获取配置值
+    // SMTP配置 - 优先从环境变量获取值
     services.Configure<SmtpSettings>(options =>
     {
         var smtpHost = Environment.GetEnvironmentVariable("NOTIFYHUB_SMTP_HOST");
@@ -132,7 +130,7 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
     services.AddScoped<IEmailService, SimpleEmailService>();
     services.AddSingleton<IApiKeyService, ApiKeyService>();
 
-    // 内存缓存和限流
+    // 速率限制和缓存
     services.AddMemoryCache();
     services.Configure<IpRateLimitOptions>(configuration.GetSection("IpRateLimiting"));
     services.Configure<IpRateLimitPolicies>(configuration.GetSection("IpRateLimitPolicies"));
@@ -148,7 +146,7 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
                 var smtpHost = Environment.GetEnvironmentVariable("NOTIFYHUB_SMTP_HOST");
                 return !string.IsNullOrEmpty(smtpHost)
                     ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("SMTP配置正常")
-                    : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("SMTP配置缺失");
+                    : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("SMTP环境变量缺失");
             }
             catch (Exception ex)
             {
@@ -165,7 +163,7 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
 
                 return envVars > 0
                     ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy($"已加载{envVars}个API密钥")
-                    : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("未找到API密钥配置");
+                    : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("未检测到API密钥");
             }
             catch (Exception ex)
             {
@@ -227,50 +225,53 @@ void ConfigurePipeline(WebApplication app)
     }
     else
     {
-        // 生产环境强制HTTPS
+        // 强制HTTPS
         app.UseHsts();
     }
 
-    // === 安全中间件层 ===
-    // 1. 全局异常处理（必须最早）
+    // === 安全中间件链 ===
+    // 1. 全局异常处理（最外层）
     app.UseGlobalExceptionHandler();
 
-    // 2. 安全头
+    // 2. 安全扫描检测（认证之前）
+    app.UseSecurityScanDetection();
+
+    // 3. 安全头设置
     if (app.Configuration.GetValue<bool>("Security:EnableSecurityHeaders", true))
     {
         app.UseSecurityHeaders();
     }
 
-    // 3. 主机过滤（阻止直接IP访问）
+    // 4. 主机过滤（阻止直接IP访问）
     if (app.Configuration.GetValue<bool>("Security:BlockDirectIpAccess", true))
     {
         app.UseCustomHostFiltering();
     }
 
-    // 4. 请求验证（大小、内容类型、恶意内容）
+    // 5. 请求验证（大小和内容校验）
     app.UseRequestValidation();
 
-    // 5. HTTPS重定向
+    // 6. HTTPS重定向
     if (app.Configuration.GetValue<bool>("Security:RequireHttps", true))
     {
         app.UseHttpsRedirection();
     }
 
-    // 6. CORS
+    // 7. CORS配置
     app.UseCors("AllowOrigins");
 
-    // 7. 限流（在认证之前）
+    // 8. 限流（认证之前）
     app.UseIpRateLimiting();
 
-    // 8. API密钥认证
+    // 9. API密钥认证
     app.UseApiKeyAuthentication();
 
-    // === 应用程序中间件层 ===
+    // === 应用程序中间件 ===
     app.UseRouting();
     app.UseAuthorization();
     app.MapControllers();
 
-    // === 健康检查和信息端点 ===
+    // === 监控和信息端点 ===
     app.MapHealthChecks("/health");
     app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
     {
@@ -281,7 +282,7 @@ void ConfigurePipeline(WebApplication app)
         Predicate = _ => false
     });
 
-    // 默认路由 - 仅开发环境显示Swagger
+    // 默认路由 - 显示Swagger
     if (app.Environment.IsDevelopment())
     {
         app.MapGet("/", () => Results.Redirect("/swagger"));
@@ -291,12 +292,12 @@ void ConfigurePipeline(WebApplication app)
         app.MapGet("/", () => Results.Json(new
         {
             message = "NotifyHub API",
-            status = "运行中",
+            status = "运行正常",
             timestamp = DateTime.UtcNow
         }));
     }
 
-    // 状态信息端点
+    // 服务状态信息端点
     app.MapGet("/info", () =>
     {
         try

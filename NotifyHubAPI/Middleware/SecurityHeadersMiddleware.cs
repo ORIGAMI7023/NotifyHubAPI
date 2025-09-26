@@ -2,7 +2,7 @@
 {
     /// <summary>
     /// 安全头中间件
-    /// 添加安全相关的HTTP响应头
+    /// 添加安全相关的HTTP响应头，保护应用免受常见攻击
     /// </summary>
     public class SecurityHeadersMiddleware
     {
@@ -15,7 +15,7 @@
 
         public async Task InvokeAsync(HttpContext context)
         {
-            // 移除服务器信息泄露
+            // 移除可能泄露服务器信息的头
             context.Response.Headers.Remove("Server");
             context.Response.Headers.Remove("X-Powered-By");
             context.Response.Headers.Remove("X-AspNetMvc-Version");
@@ -27,15 +27,19 @@
             AddHeaderIfNotExists(context.Response.Headers, "X-XSS-Protection", "1; mode=block");
             AddHeaderIfNotExists(context.Response.Headers, "Referrer-Policy", "strict-origin-when-cross-origin");
 
-            // 内容安全策略 - 针对API服务
+            // 内容安全策略 - 针对API服务的严格策略
             AddHeaderIfNotExists(context.Response.Headers, "Content-Security-Policy",
                 "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+
+            // 权限策略 - 禁用不必要的浏览器功能
+            AddHeaderIfNotExists(context.Response.Headers, "Permissions-Policy",
+                "camera=(), microphone=(), geolocation=(), payment=()");
 
             // 严格传输安全 - 只在HTTPS且尚未存在时添加
             if (context.Request.IsHttps && !context.Response.Headers.ContainsKey("Strict-Transport-Security"))
             {
                 context.Response.Headers.Add("Strict-Transport-Security",
-                    "max-age=31536000; includeSubDomains");
+                    "max-age=31536000; includeSubDomains; preload");
             }
 
             await _next(context);
@@ -53,8 +57,14 @@
         }
     }
 
+    /// <summary>
+    /// 安全头中间件扩展方法
+    /// </summary>
     public static class SecurityHeadersMiddlewareExtensions
     {
+        /// <summary>
+        /// 添加安全头中间件到请求管道
+        /// </summary>
         public static IApplicationBuilder UseSecurityHeaders(this IApplicationBuilder builder)
         {
             return builder.UseMiddleware<SecurityHeadersMiddleware>();
