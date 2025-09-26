@@ -30,6 +30,9 @@ namespace NotifyHubAPI.Services
                 // 直接发送邮件，不保存到数据库
                 await SendEmailInternalAsync(emailRequest, cancellationToken);
 
+                // 记录邮件发送成功日志
+                LogEmailSent(emailId, emailRequest, apiKey, requestId, true, null);
+
                 _logger.LogInformation("邮件发送成功，EmailId: {EmailId}, RequestId: {RequestId}", emailId, requestId);
 
                 return new EmailSendResponse
@@ -41,6 +44,9 @@ namespace NotifyHubAPI.Services
             }
             catch (Exception ex)
             {
+                // 记录邮件发送失败日志（API密钥已验证通过）
+                LogEmailSent(emailId, emailRequest, apiKey, requestId, false, ex.Message);
+
                 _logger.LogError(ex, "邮件发送失败，EmailId: {EmailId}, RequestId: {RequestId}", emailId, requestId);
 
                 return new EmailSendResponse
@@ -50,6 +56,64 @@ namespace NotifyHubAPI.Services
                     Message = $"邮件发送失败: {ex.Message}"
                 };
             }
+        }
+
+        /// <summary>
+        /// 记录邮件发送结果的详细日志 - 直接写入独立文件
+        /// </summary>
+        private void LogEmailSent(Guid emailId, EmailRequest emailRequest, string apiKey, string requestId, bool isSuccess, string? errorMessage = null)
+        {
+            var projectName = GetProjectNameFromApiKey(apiKey);
+            var recipientCount = (emailRequest.To?.Count ?? 0) +
+                               (emailRequest.Cc?.Count ?? 0) +
+                               (emailRequest.Bcc?.Count ?? 0);
+
+            var status = isSuccess ? "成功" : "失败";
+            var logLine = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] 邮件发送{status} | EmailId: {emailId} | RequestId: {requestId} | Project: {projectName} | " +
+                         $"Category: {emailRequest.Category} | Subject: {emailRequest.Subject} | " +
+                         $"To: {(emailRequest.To != null ? string.Join(", ", emailRequest.To) : "")} | " +
+                         $"Cc: {(emailRequest.Cc != null ? string.Join(", ", emailRequest.Cc) : "")} | " +
+                         $"Bcc: {(emailRequest.Bcc != null ? $"[{emailRequest.Bcc.Count} recipients]" : "")} | " +
+                         $"Recipients: {recipientCount} | Priority: {emailRequest.Priority} | IsHtml: {emailRequest.IsHtml} | " +
+                         $"BodyLength: {emailRequest.Body?.Length ?? 0} | From: {_smtpSettings.FromEmail} | " +
+                         $"SentAt: {DateTime.UtcNow:O}";
+
+            // 如果是失败状态，添加错误信息
+            if (!isSuccess && !string.IsNullOrEmpty(errorMessage))
+            {
+                logLine += $" | Error: {errorMessage}";
+            }
+
+            // 直接写入独立的邮件日志文件
+            try
+            {
+                var logDirectory = "logs";
+                if (!Directory.Exists(logDirectory))
+                {
+                    Directory.CreateDirectory(logDirectory);
+                }
+
+                var logFileName = Path.Combine(logDirectory, $"email-sent-{DateTime.Now:yyyyMMdd}.log");
+                File.AppendAllText(logFileName, logLine + Environment.NewLine);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "写入邮件发送日志失败");
+            }
+        }
+
+        /// <summary>
+        /// 从API密钥获取项目名称（简化版）
+        /// </summary>
+        private string GetProjectNameFromApiKey(string apiKey)
+        {
+            // 简单的项目识别逻辑
+            if (apiKey.Contains("DEFAULT"))
+                return "DEFAULT";
+            if (apiKey.Contains("FMS"))
+                return "FMS_DATA_PROCESSOR";
+
+            return "UNKNOWN";
         }
 
         public Task<bool> RetryEmailAsync(Guid emailId, CancellationToken cancellationToken = default)
