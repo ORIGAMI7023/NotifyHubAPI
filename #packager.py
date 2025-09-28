@@ -3,10 +3,176 @@
 """
 NotifyHubAPI 项目代码打包脚本
 用于生成适合上传到Claude的邮件通知API代码文档
+✨ 包含敏感信息保护功能
 """
 
 import os
 import datetime
+import json
+import re
+
+# ✨敏感信息保护功能
+def mask_value(val: str, min_show: int = None) -> str:
+    """
+    根据字符串长度智能掩码
+    - 短值（≤8字符）：显示前4位 + ****
+    - 中等值（9-16字符）：显示前8位 + ****
+    - 长值（>16字符）：显示前16位 + ****
+    """
+    if not val:
+        return val
+    
+    if min_show is not None:
+        show_chars = min_show
+    elif len(val) <= 8:
+        show_chars = min(4, len(val))
+    elif len(val) <= 16:
+        show_chars = 8
+    else:
+        show_chars = 16
+    
+    if len(val) <= show_chars:
+        return val
+    return val[:show_chars] + '****'
+
+# ✨敏感信息关键词列表
+SENSITIVE_KEYWORDS = [
+    'password', 'pwd', 'passwd', 'secret', 'key', 'token', 'apikey', 'api_key',
+    'connectionstring', 'connstr', 'connection_string', 'hash', 'salt', 
+    'signature', 'private', 'credential', 'auth', 'jwt', 'bearer',
+    'database', 'server', 'userid', 'user_id', 'username', 'smtp', 'mail'
+]
+
+def is_sensitive_key(key: str) -> bool:
+    """检查键名是否包含敏感关键词"""
+    key_lower = key.lower()
+    return any(keyword in key_lower for keyword in SENSITIVE_KEYWORDS)
+
+def mask_connection_string(conn_str: str) -> str:
+    """智能处理连接字符串，只掩码敏感部分"""
+    if not conn_str:
+        return conn_str
+    
+    # 处理各种连接字符串格式
+    patterns = [
+        (r'(password|pwd)\s*=\s*([^;]+)', r'\1=****'),
+        (r'(user\s*id|uid|username)\s*=\s*([^;]+)', lambda m: f'{m.group(1)}={mask_value(m.group(2), 4)}'),
+        (r'(server|data\s*source)\s*=\s*([^;]+)', lambda m: f'{m.group(1)}={mask_value(m.group(2), 8)}'),
+    ]
+    
+    result = conn_str
+    for pattern, replacement in patterns:
+        if callable(replacement):
+            result = re.sub(pattern, replacement, result, flags=re.IGNORECASE)
+        else:
+            result = re.sub(pattern, replacement, result, flags=re.IGNORECASE)
+    
+    return result
+
+def process_json_content(content: str) -> str:
+    """处理JSON文件中的敏感信息"""
+    try:
+        data = json.loads(content)
+        processed_data = mask_json_recursive(data)
+        return json.dumps(processed_data, indent=2, ensure_ascii=False)
+    except json.JSONDecodeError:
+        return content
+
+def mask_json_recursive(obj):
+    """递归处理JSON对象中的敏感信息"""
+    if isinstance(obj, dict):
+        result = {}
+        for key, value in obj.items():
+            if isinstance(value, str) and is_sensitive_key(key):
+                # 特殊处理连接字符串
+                if 'connection' in key.lower():
+                    result[key] = mask_connection_string(value)
+                else:
+                    result[key] = mask_value(value)
+            elif isinstance(value, (dict, list)):
+                result[key] = mask_json_recursive(value)
+            else:
+                result[key] = value
+        return result
+    elif isinstance(obj, list):
+        return [mask_json_recursive(item) for item in obj]
+    else:
+        return obj
+
+def process_csharp_content(content: str) -> str:
+    """处理C#代码中的敏感信息"""
+    lines = content.split('\n')
+    processed_lines = []
+    
+    for line in lines:
+        # 处理字符串字面量赋值
+        # 如: string password = "secret123";
+        string_assignment_pattern = r'(\w*(?:' + '|'.join(SENSITIVE_KEYWORDS) + r')\w*)\s*=\s*["\']([^"\']+)["\']'
+        
+        def replace_assignment(match):
+            var_name, value = match.groups()
+            if is_sensitive_key(var_name):
+                return f'{var_name} = "{mask_value(value)}"'
+            return match.group(0)
+        
+        processed_line = re.sub(string_assignment_pattern, replace_assignment, line, flags=re.IGNORECASE)
+        
+        # 处理常量定义
+        # 如: const string API_KEY = "abc123";
+        const_pattern = r'(const\s+string\s+\w*(?:' + '|'.join(SENSITIVE_KEYWORDS) + r')\w*\s*=\s*["\'])([^"\']+)(["\'])'
+        
+        def replace_const(match):
+            prefix, value, suffix = match.groups()
+            return f'{prefix}{mask_value(value)}{suffix}'
+        
+        processed_line = re.sub(const_pattern, replace_const, processed_line, flags=re.IGNORECASE)
+        
+        # 处理配置访问
+        # 如: Configuration["ConnectionStrings:Default"]
+        config_pattern = r'(Configuration\[["\'][^"\']*(?:' + '|'.join(SENSITIVE_KEYWORDS) + r')[^"\']*["\']]\s*=\s*["\'])([^"\']+)(["\'])'
+        
+        def replace_config(match):
+            prefix, value, suffix = match.groups()
+            return f'{prefix}{mask_value(value)}{suffix}'
+        
+        processed_line = re.sub(config_pattern, replace_config, processed_line, flags=re.IGNORECASE)
+        
+        processed_lines.append(processed_line)
+    
+    return '\n'.join(processed_lines)
+
+def process_file_content(file_path: str, content: str) -> str:
+    """根据文件类型处理敏感信息"""
+    file_ext = os.path.splitext(file_path)[1].lower()
+    file_name = os.path.basename(file_path).lower()
+    
+    if file_ext == '.json':
+        # 处理 JSON 配置文件
+        return process_json_content(content)
+    elif file_ext == '.cs':
+        # 处理 C# 代码文件
+        return process_csharp_content(content)
+    elif file_ext in ['.config', '.xml'] and ('web.config' in file_name or 'app.config' in file_name):
+        # 处理 XML 配置文件中的环境变量
+        def replacer(m):
+            name, val = m.group(1), m.group(2)
+            return f'<add key="{name}" value="{mask_value(val)}" />'
+        
+        # 处理 appSettings
+        pattern = re.compile(r'<add\s+key="([^"]+)"\s+value="([^"]+)"\s*/>')
+        content = pattern.sub(replacer, content)
+        
+        # 处理 connectionStrings
+        def conn_replacer(m):
+            name, conn_str = m.group(1), m.group(2)
+            return f'<add name="{name}" connectionString="{mask_connection_string(conn_str)}" />'
+        
+        conn_pattern = re.compile(r'<add\s+name="([^"]+)"\s+connectionString="([^"]+)"[^>]*>')
+        content = conn_pattern.sub(conn_replacer, content)
+        
+        return content
+    else:
+        return content
 
 def get_file_size_from_bytes(size_bytes):
     """将字节数转换为人类可读格式"""
@@ -46,7 +212,7 @@ def should_skip_file(filename):
 def main():
     # NotifyHubAPI 项目根目录 - 根据您的截图，实际项目在子文件夹中
     root_dir = r"D:\Programing\C#\NotifyHubAPI\NotifyHubAPI"  # 注意这里多了一层
-    output_file = r"D:\Programing\C#\NotifyHubAPI\_NotifyHubAPI_Code.txt"
+    output_file = r"D:\Programing\C#\NotifyHubAPI\#NotifyHubAPI_Code.txt"
     
     # 检查目录是否存在
     if not os.path.exists(root_dir):
@@ -86,6 +252,7 @@ def main():
     all_paths = []
     total_size = 0
     file_count = 0
+    protected_files = 0  # ✨统计被保护的文件数
 
     print("开始打包 NotifyHubAPI 项目...")
 
@@ -94,7 +261,8 @@ def main():
         out.write("# NotifyHubAPI - 邮件通知API服务\n")
         out.write("## 项目概述\n")
         out.write("独立的邮件通知API服务，基于ASP.NET Core Web API开发\n")
-        out.write("为多个项目提供统一的邮件发送功能，支持多租户、重试机制、状态跟踪等功能\n\n")
+        out.write("为多个项目提供统一的邮件发送功能，支持多租户、重试机制、状态跟踪等功能\n")
+        out.write("⚠️  敏感信息已自动掩码处理，保护密码、密钥、连接字符串等\n\n")
         
         # 先收集所有文件信息
         print(f"扫描目录: {root_dir}")
@@ -215,6 +383,15 @@ def main():
                 
                 with open(file_info['full_path'], "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
+                    
+                    # ✨处理敏感信息
+                    original_content = content
+                    content = process_file_content(file_info['path'], content)
+                    
+                    # 统计是否有敏感信息被保护
+                    if content != original_content:
+                        protected_files += 1
+                    
                     # 移除文件末尾多余的空行
                     content = content.rstrip() + "\n"
                     out.write(content)
@@ -224,10 +401,25 @@ def main():
             except Exception as e:
                 out.write(f"\n#### 文件: {file_info['path']} [读取失败: {str(e)}]\n")
                 out.write("```\n[文件读取失败]\n```\n")
+        
+        # ✨写入保护统计
+        out.write(f"\n\n## 敏感信息保护统计\n")
+        out.write(f"- 受保护文件数: {protected_files}\n")
+        out.write("- 保护内容: 密码、密钥、连接字符串、API令牌等\n")
+        out.write("- 保护方式: 智能掩码，保留前缀用于识别\n")
 
-    print(f"NotifyHubAPI 已打包到: {output_file}")
-    print(f"包含 {file_count} 个文件，总大小: {get_file_size_from_bytes(total_size)}")
-    print("\n打包完成！可以将生成的文件上传到Claude进行代码分析。")
+    # 计算输出文件大小并显示统计信息
+    if os.path.exists(output_file):
+        output_size = os.path.getsize(output_file)
+        
+        print("\n" + "=" * 60)
+        print("✅ 所有文件合并成功!")
+        print(f"输出文件: {output_file}")
+        print(f"文件大小: {get_file_size_from_bytes(output_size)}")
+        print(f"包含文件总数: {file_count}")
+        print(f"敏感信息保护: {protected_files} 个文件")
+        print("=" * 60)
+        print("\n✅ 打包完成！敏感信息已自动保护，可以安全上传到Claude进行代码分析。")
 
 def get_file_extension_for_syntax(file_path):
     """根据文件路径返回语法高亮的语言标识"""
