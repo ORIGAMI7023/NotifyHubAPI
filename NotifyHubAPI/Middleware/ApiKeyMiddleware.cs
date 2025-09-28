@@ -6,8 +6,9 @@ using System.Text.Encodings.Web;
 namespace NotifyHubAPI.Middleware
 {
     /// <summary>
-    /// API密钥认证中间件
-    /// 支持多种认证方式：Authorization Bearer Token 和 X-API-Key Header
+    /// API密钥认证中间件 - 安全版本
+    /// 仅支持安全的Header方式：Authorization Bearer Token 和 X-API-Key Header
+    /// 已移除不安全的Query参数支持
     /// </summary>
     public class ApiKeyMiddleware
     {
@@ -23,14 +24,15 @@ namespace NotifyHubAPI.Middleware
             "/swagger/index.html",
             "/swagger/v1/swagger.json",
             "/health",
-            "/api/email/health"
+            "/api/email/health",
+            "/info"
         };
 
         // JSON序列化选项 - 避免Unicode转义
         private readonly JsonSerializerOptions _jsonOptions = new()
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping // 避免Unicode转义
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
         };
 
         public ApiKeyMiddleware(RequestDelegate next, ILogger<ApiKeyMiddleware> logger, IServiceProvider serviceProvider)
@@ -53,14 +55,15 @@ namespace NotifyHubAPI.Middleware
             using var scope = _serviceProvider.CreateScope();
             var apiKeyService = scope.ServiceProvider.GetRequiredService<IApiKeyService>();
 
-            // 从请求中获取API Key
-            var apiKey = GetApiKeyFromRequest(context);
+            // 从请求中获取API Key（仅安全方式）
+            var apiKey = GetApiKeyFromSecureHeaders(context);
 
             if (string.IsNullOrEmpty(apiKey))
             {
-                _logger.LogWarning("API请求缺少密钥，路径: {Path}, IP: {IP}",
-                    context.Request.Path, GetClientIpAddress(context));
-                await WriteUnauthorizedResponse(context, "缺少API密钥");
+                _logger.LogWarning("API请求缺少密钥，路径: {Path}, IP: {IP}, UserAgent: {UserAgent}",
+                    context.Request.Path, GetClientIpAddress(context),
+                    context.Request.Headers.UserAgent.FirstOrDefault());
+                await WriteUnauthorizedResponse(context, "缺少API密钥。请使用Authorization Header或X-API-Key Header提供密钥");
                 return;
             }
 
@@ -109,30 +112,27 @@ namespace NotifyHubAPI.Middleware
         }
 
         /// <summary>
-        /// 从HTTP请求中获取API密钥
+        /// 从安全的HTTP Header中获取API密钥
+        /// 移除了不安全的Query参数支持
         /// </summary>
-        private static string? GetApiKeyFromRequest(HttpContext context)
+        private static string? GetApiKeyFromSecureHeaders(HttpContext context)
         {
-            // 1. 从Authorization Header获取Bearer Token
+            // 1. 从Authorization Header获取Bearer Token (推荐方式)
             var authHeader = context.Request.Headers.Authorization.FirstOrDefault();
             if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
             {
                 return authHeader.Substring("Bearer ".Length).Trim();
             }
 
-            // 2. 从X-API-Key Header获取
+            // 2. 从X-API-Key Header获取 (备选方式)
             var apiKeyHeader = context.Request.Headers["X-API-Key"].FirstOrDefault();
             if (!string.IsNullOrEmpty(apiKeyHeader))
             {
                 return apiKeyHeader.Trim();
             }
 
-            // 3. 从查询参数获取（仅用于开发环境，不推荐生产使用）
-            var apiKeyQuery = context.Request.Query["apikey"].FirstOrDefault();
-            if (!string.IsNullOrEmpty(apiKeyQuery))
-            {
-                return apiKeyQuery.Trim();
-            }
+            // 🚫 已移除Query参数支持以提高安全性
+            // 不再支持 ?apikey=xxx 方式
 
             return null;
         }
@@ -204,7 +204,15 @@ namespace NotifyHubAPI.Middleware
             var response = StandardApiResponse<object>.CreateFailure(
                 message,
                 errorCode,
-                details: null
+                details: new
+                {
+                    supportedMethods = new[]
+                    {
+                        "Authorization: Bearer {your-api-key}",
+                        "X-API-Key: {your-api-key}"
+                    },
+                    securityNote = "Query参数方式已禁用以提高安全性"
+                }
             );
 
             var jsonResponse = JsonSerializer.Serialize(response, _jsonOptions);

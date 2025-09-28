@@ -38,11 +38,12 @@ namespace NotifyHubAPI.Controllers
         {
             try
             {
-                // 获取API Key
-                var apiKey = GetApiKeyFromRequest();
+                // 获取API Key（仅从安全的Header中）
+                var apiKey = GetApiKeyFromSecureHeaders();
                 if (string.IsNullOrEmpty(apiKey))
                 {
-                    return Unauthorized(StandardApiResponse<object>.CreateUnauthorized("缺少API密钥"));
+                    return Unauthorized(StandardApiResponse<object>.CreateUnauthorized(
+                        "缺少API密钥。请使用Authorization Header或X-API-Key Header提供密钥"));
                 }
 
                 // 验证API Key
@@ -129,13 +130,22 @@ namespace NotifyHubAPI.Controllers
                 {
                     Status = "Healthy",
                     Timestamp = DateTime.UtcNow,
-                    Version = "1.0.0",
+                    Version = "1.0.1-Secure",
                     Environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Unknown",
                     Components = new Dictionary<string, object>
                     {
                         ["smtp"] = "Available",
                         ["apiKeys"] = _apiKeyService.GetAllApiKeys().Count + " keys loaded",
-                        ["mode"] = "Stateless"
+                        ["mode"] = "Stateless",
+                        ["security"] = new
+                        {
+                            queryParamApiKey = "Disabled",
+                            supportedMethods = new[]
+                            {
+                                "Authorization: Bearer {key}",
+                                "X-API-Key: {key}"
+                            }
+                        }
                     }
                 };
 
@@ -152,25 +162,27 @@ namespace NotifyHubAPI.Controllers
         }
 
         /// <summary>
-        /// 从请求中获取API密钥
+        /// 从安全的Header中获取API密钥
+        /// 已移除Query参数支持
         /// </summary>
         /// <returns>API密钥</returns>
-        private string? GetApiKeyFromRequest()
+        private string? GetApiKeyFromSecureHeaders()
         {
-            // 从Authorization Header获取Bearer Token
+            // 1. 从Authorization Header获取Bearer Token
             var authHeader = Request.Headers.Authorization.FirstOrDefault();
-            if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
+            if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
             {
                 return authHeader.Substring("Bearer ".Length).Trim();
             }
 
-            // 从X-API-Key Header获取
+            // 2. 从X-API-Key Header获取
             var apiKeyHeader = Request.Headers["X-API-Key"].FirstOrDefault();
             if (!string.IsNullOrEmpty(apiKeyHeader))
             {
                 return apiKeyHeader.Trim();
             }
 
+            // 🚫 已移除Query参数支持以提高安全性
             return null;
         }
 
