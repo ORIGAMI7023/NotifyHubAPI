@@ -364,3 +364,4 @@ FodyWeavers.xsd
 /NotifyHubAPI/web.config
 
 _NotifyHubAPI_Code.txt
+email_send_test.py
