@@ -35,24 +35,28 @@ namespace NotifyHubAPI.Services
             _logger = logger;
             _apiKeys = new Dictionary<string, string>();
 
-            // 只从环境变量读取，不再使用配置文件作为后备
+            // 优先级：环境变量 > 用户机密 > 配置文件
             LoadFromEnvironmentVariables();
+            LoadFromConfiguration(configuration);
 
             if (_apiKeys.Count == 0)
             {
-                var errorMessage = "严重错误：未找到任何环境变量中的API密钥配置。请检查以下环境变量是否正确设置：NOTIFYHUB_APIKEY_DEFAULT, NOTIFYHUB_APIKEY_FMS_DATA_PROCESSOR";
+                var errorMessage = "严重错误：未找到任何API密钥配置。请检查以下位置：" +
+                                 "1. 环境变量（NOTIFYHUB_APIKEY_*）" +
+                                 "2. 用户机密（ApiKeys section）" +
+                                 "3. 配置文件（ApiKeys section）";
                 _logger.LogError(errorMessage);
                 throw new InvalidOperationException(errorMessage);
             }
 
-            _logger.LogInformation("已从环境变量加载 {Count} 个API密钥配置", _apiKeys.Count);
+            _logger.LogInformation("已加载 {Count} 个API密钥配置", _apiKeys.Count);
         }
 
         private void LoadFromEnvironmentVariables()
         {
             var envVars = Environment.GetEnvironmentVariables()
                 .Cast<System.Collections.DictionaryEntry>()
-                .Where(kv => kv.Key.ToString()?.StartsWith("NOTIFYHUB_APIKEY_DEFAULT") == true)
+                .Where(kv => kv.Key.ToString()?.StartsWith("NOTIFYHUB_APIKEY_") == true)
                 .ToList();
 
             foreach (var envVar in envVars)
@@ -64,10 +68,44 @@ namespace NotifyHubAPI.Services
                     continue;
 
                 // 提取项目名称: NOTIFYHUB_APIKEY_DEFAULT -> DEFAULT
-                var projectName = key.Substring("NOTIFYHUB_APIKEY_DEFAULT".Length);
+                var projectName = key.Substring("NOTIFYHUB_APIKEY_".Length);
 
                 _apiKeys[value] = projectName;
                 _logger.LogInformation("已从环境变量加载API密钥，项目: {ProjectName}", projectName);
+            }
+        }
+
+        private void LoadFromConfiguration(IConfiguration configuration)
+        {
+            var apiKeysSection = configuration.GetSection("ApiKeys");
+            if (!apiKeysSection.Exists())
+            {
+                _logger.LogDebug("配置中未找到ApiKeys节");
+                return;
+            }
+
+            foreach (var kvp in apiKeysSection.GetChildren())
+            {
+                var projectKey = kvp.Key;
+                var apiKeyValue = kvp.Value;
+
+                if (string.IsNullOrEmpty(apiKeyValue))
+                    continue;
+
+                // 如果环境变量中已存在相同的API密钥，跳过（环境变量优先级更高）
+                if (_apiKeys.ContainsKey(apiKeyValue))
+                {
+                    _logger.LogDebug("API密钥已存在（来自环境变量），跳过配置项: {ProjectKey}", projectKey);
+                    continue;
+                }
+
+                // 提取项目名称: NOTIFYHUB_APIKEY_DEFAULT -> DEFAULT
+                var projectName = projectKey.StartsWith("NOTIFYHUB_APIKEY_")
+                    ? projectKey.Substring("NOTIFYHUB_APIKEY_".Length)
+                    : projectKey;
+
+                _apiKeys[apiKeyValue] = projectName;
+                _logger.LogInformation("已从配置加载API密钥，项目: {ProjectName}", projectName);
             }
         }
 

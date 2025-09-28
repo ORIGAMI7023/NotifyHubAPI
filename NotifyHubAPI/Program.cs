@@ -94,9 +94,13 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
         });
     });
 
-    // SMTP配置 - 优先从环境变量获取值
+    // SMTP配置 - 优先级：环境变量 > 用户机密 > 配置文件
     services.Configure<SmtpSettings>(options =>
     {
+        // 首先从配置文件（包括用户机密）加载基础配置
+        builder.Configuration.GetSection("SmtpSettings").Bind(options);
+
+        // 然后用环境变量覆盖（如果存在）
         var smtpHost = Environment.GetEnvironmentVariable("NOTIFYHUB_SMTP_HOST");
         if (!string.IsNullOrEmpty(smtpHost))
             options.Host = smtpHost;
@@ -124,6 +128,10 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
         var smtpFromName = Environment.GetEnvironmentVariable("NOTIFYHUB_SMTP_FROMNAME");
         if (!string.IsNullOrEmpty(smtpFromName))
             options.FromName = smtpFromName;
+
+        // 记录配置来源（用于调试）
+        var configSource = !string.IsNullOrEmpty(smtpHost) ? "环境变量" : "配置文件/用户机密";
+        Log.Information("SMTP配置已加载，来源: {Source}", configSource);
     });
 
     // 注册服务
@@ -139,37 +147,64 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
 
     // 健康检查
     services.AddHealthChecks()
-        .AddCheck("smtp", () =>
+    .AddCheck("smtp", () =>
+    {
+        try
         {
-            try
-            {
-                var smtpHost = Environment.GetEnvironmentVariable("NOTIFYHUB_SMTP_HOST");
-                return !string.IsNullOrEmpty(smtpHost)
-                    ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("SMTP配置正常")
-                    : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("SMTP环境变量缺失");
-            }
-            catch (Exception ex)
-            {
-                return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy($"SMTP检查失败: {ex.Message}");
-            }
-        })
-        .AddCheck("apikeys", () =>
-        {
-            try
-            {
-                var envVars = Environment.GetEnvironmentVariables()
-                    .Cast<System.Collections.DictionaryEntry>()
-                    .Count(kv => kv.Key.ToString()?.StartsWith("NOTIFYHUB_APIKEY_") == true);
+            // 检查SMTP配置 - 优先级：环境变量 > 用户机密 > 配置文件
+            var smtpHost = Environment.GetEnvironmentVariable("NOTIFYHUB_SMTP_HOST")
+                          ?? builder.Configuration["SmtpSettings:Host"];
+            var smtpUsername = Environment.GetEnvironmentVariable("NOTIFYHUB_SMTP_USERNAME")
+                              ?? builder.Configuration["SmtpSettings:Username"];
+            var smtpPassword = Environment.GetEnvironmentVariable("NOTIFYHUB_SMTP_PASSWORD")
+                              ?? builder.Configuration["SmtpSettings:Password"];
 
-                return envVars > 0
-                    ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy($"已加载{envVars}个API密钥")
-                    : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("未检测到API密钥");
-            }
-            catch (Exception ex)
+            if (!string.IsNullOrEmpty(smtpHost) &&
+                !string.IsNullOrEmpty(smtpUsername) &&
+                !string.IsNullOrEmpty(smtpPassword))
             {
-                return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy($"API密钥检查失败: {ex.Message}");
+                return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy($"SMTP配置完整: {smtpHost}");
             }
-        });
+
+            return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("SMTP配置不完整");
+        }
+        catch (Exception ex)
+        {
+            return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy($"SMTP检查失败: {ex.Message}");
+        }
+    })
+    .AddCheck("apikeys", () =>
+    {
+        try
+        {
+            // 检查API密钥 - 优先级：环境变量 > 用户机密 > 配置文件
+            var apiKeyCount = 0;
+
+            // 1. 检查环境变量
+            var envVars = Environment.GetEnvironmentVariables()
+                .Cast<System.Collections.DictionaryEntry>()
+                .Count(kv => kv.Key.ToString()?.StartsWith("NOTIFYHUB_APIKEY_") == true);
+            apiKeyCount += envVars;
+
+            // 2. 检查用户机密和配置文件中的ApiKeys部分
+            var apiKeysSection = builder.Configuration.GetSection("ApiKeys");
+            if (apiKeysSection.Exists())
+            {
+                var configApiKeys = apiKeysSection.GetChildren()
+                    .Where(kv => !string.IsNullOrEmpty(kv.Value))
+                    .Count();
+                apiKeyCount += configApiKeys;
+            }
+
+            return apiKeyCount > 0
+                ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy($"发现{apiKeyCount}个API密钥")
+                : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("未检测到API密钥");
+        }
+        catch (Exception ex)
+        {
+            return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy($"API密钥检查失败: {ex.Message}");
+        }
+    });
 
     // CORS配置
     services.AddCors(options =>
