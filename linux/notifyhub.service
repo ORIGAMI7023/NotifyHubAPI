@@ -1,28 +1,22 @@
+# systemd 服务配置 - NotifyHub API
+# 路径: /etc/systemd/system/notifyhub.service
+# 最后更新: 2025-11-12
+
 [Unit]
 Description=NotifyHub Email Notification API Service
 After=network.target
 
 [Service]
-Type=notify
-User=nginx
-Group=nginx
 WorkingDirectory=/var/www/notifyhub
-
-# 启动命令
 ExecStart=/usr/bin/dotnet /var/www/notifyhub/NotifyHubAPI.dll
-
-# ========== 环境变量配置 ==========
-# 运行环境（必须）
+Restart=always
+RestartSec=5
+SyslogIdentifier=notifyhub
+User=nginx
 Environment="ASPNETCORE_ENVIRONMENT=Production"
-Environment="ASPNETCORE_URLS=http://localhost:5000"
-
-# API密钥（必需 - 请替换为实际值）
+Environment="ASPNETCORE_URLS=http://127.0.0.1:5000"
+Environment="DOTNET_PRINT_TELEMETRY_MESSAGE=false"
 Environment="NOTIFYHUB_APIKEY_DEFAULT=nh-prod-Y63jT32xDaxWy1Ek******"
-# 如果有其他项目的密钥，继续添加：
-# Environment="NOTIFYHUB_APIKEY_FMS=fms-key-here"
-# Environment="NOTIFYHUB_APIKEY_ANOTHER_PROJECT=another-key-here"
-
-# SMTP配置（必需 - 请替换为实际值）
 Environment="NOTIFYHUB_SMTP_HOST=smtp.qq.com"
 Environment="NOTIFYHUB_SMTP_PORT=587"
 Environment="NOTIFYHUB_SMTP_USESSL=true"
@@ -30,39 +24,6 @@ Environment="NOTIFYHUB_SMTP_USERNAME=2840080918@qq.com"
 Environment="NOTIFYHUB_SMTP_PASSWORD=trjw******"
 Environment="NOTIFYHUB_SMTP_FROMEMAIL=2840080918@qq.com"
 Environment="NOTIFYHUB_SMTP_FROMNAME=NotifyHub"
-
-# ========== 日志配置 ==========
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=notifyhub
-
-# ========== 安全加固 ==========
-# 防止权限提升
-NoNewPrivileges=true
-# 使用私有临时目录
-PrivateTmp=true
-# 保护系统文件（strict表示只读）
-ProtectSystem=strict
-# 保护用户主目录
-ProtectHome=true
-# 允许写入的目录（日志和数据库）
-ReadWritePaths=/var/www/notifyhub/logs
-ReadWritePaths=/var/www/notifyhub
-
-# ========== 自动重启配置 ==========
-# 总是自动重启（无论退出原因）
-Restart=always
-# 重启前等待10秒
-RestartSec=10
-# 限制启动频率（5分钟内最多重启10次）
-StartLimitInterval=300
-StartLimitBurst=10
-
-# ========== 资源限制（可选） ==========
-# 内存限制（根据实际需求调整）
-# MemoryLimit=512M
-# CPU限制（50%表示最多使用半个CPU核心）
-# CPUQuota=50%
 
 [Install]
 WantedBy=multi-user.target
