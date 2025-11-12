@@ -4,8 +4,8 @@ After=network.target
 
 [Service]
 Type=notify
-User=www-data
-Group=www-data
+User=nginx
+Group=nginx
 WorkingDirectory=/var/www/notifyhub
 
 # 启动命令
