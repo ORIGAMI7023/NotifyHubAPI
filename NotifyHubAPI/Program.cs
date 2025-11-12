@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ÅäÖÃSerilog - ½öÊ¹ÓÃÅäÖÃÎÄ¼þ£¬±ÜÃâÖØ¸´
+// ï¿½ï¿½ï¿½ï¿½Serilog - ï¿½ï¿½Ê¹ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ø¸ï¿½
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration)
     .Enrich.FromLogContext()
@@ -14,15 +14,15 @@ Log.Logger = new LoggerConfiguration()
 
 builder.Host.UseSerilog();
 
-// ÅäÖÃ·þÎñ
+// ï¿½ï¿½ï¿½Ã·ï¿½ï¿½ï¿½
 ConfigureServices(builder.Services, builder.Configuration);
 
 var app = builder.Build();
 
-// ÅäÖÃHTTP¹ÜµÀ
+// ï¿½ï¿½ï¿½ï¿½HTTPï¿½Üµï¿½
 ConfigurePipeline(app);
 
-Log.Information("NotifyHubAPI ·þÎñÆô¶¯Íê³É£¬¼àÌýµØÖ·: {Urls}", string.Join(", ", app.Urls));
+Log.Information("NotifyHubAPI ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½É£ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö·: {Urls}", string.Join(", ", app.Urls));
 
 try
 {
@@ -30,7 +30,7 @@ try
 }
 catch (Exception ex)
 {
-    Log.Fatal(ex, "Ó¦ÓÃ³ÌÐòÆô¶¯Ê§°Ü");
+    Log.Fatal(ex, "Ó¦ï¿½Ã³ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê§ï¿½ï¿½");
 }
 finally
 {
@@ -39,11 +39,11 @@ finally
 
 void ConfigureServices(IServiceCollection services, IConfiguration configuration)
 {
-    // »ù´¡·þÎñ
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     services.AddControllers();
     services.AddEndpointsApiExplorer();
 
-    // ÇëÇó´óÐ¡ÏÞÖÆ
+    // ï¿½ï¿½ï¿½ï¿½ï¿½Ð¡ï¿½ï¿½ï¿½ï¿½
     services.Configure<IISServerOptions>(options =>
     {
         options.MaxRequestBodySize = configuration.GetValue<long>("Security:MaxRequestSizeBytes", 1024 * 1024);
@@ -60,7 +60,7 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
         {
             Title = "NotifyHub API",
             Version = "v1.0",
-            Description = "Í³Ò»ÓÊ¼þÍ¨ÖªAPI - Îª¶à¸öÏîÄ¿Ìá¹©Í³Ò»ÓÊ¼þÍ¨Öª·þÎñ",
+            Description = "Í³Ò»ï¿½Ê¼ï¿½Í¨ÖªAPI - Îªï¿½ï¿½ï¿½ï¿½ï¿½Ä¿ï¿½á¹©Í³Ò»ï¿½Ê¼ï¿½Í¨Öªï¿½ï¿½ï¿½ï¿½",
             Contact = new Microsoft.OpenApi.Models.OpenApiContact
             {
                 Name = "NotifyHub Team",
@@ -68,10 +68,10 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
             }
         });
 
-        // API KeyÈÏÖ¤SwaggerÅäÖÃ
+        // API Keyï¿½ï¿½Ö¤Swaggerï¿½ï¿½ï¿½ï¿½
         c.AddSecurityDefinition("ApiKey", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
         {
-            Description = "API KeyÈÏÖ¤ (Header: X-API-Key »ò Authorization: Bearer {key})",
+            Description = "API Keyï¿½ï¿½Ö¤ (Header: X-API-Key ï¿½ï¿½ Authorization: Bearer {key})",
             Name = "X-API-Key",
             In = Microsoft.OpenApi.Models.ParameterLocation.Header,
             Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
@@ -94,13 +94,13 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
         });
     });
 
-    // SMTPÅäÖÃ - ÓÅÏÈ¼¶£º»·¾³±äÁ¿ > ÓÃ»§»úÃÜ > ÅäÖÃÎÄ¼þ
+    // SMTPï¿½ï¿½ï¿½ï¿½ - ï¿½ï¿½ï¿½È¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ > ï¿½Ã»ï¿½ï¿½ï¿½ï¿½ï¿½ > ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½
     services.Configure<SmtpSettings>(options =>
     {
-        // Ê×ÏÈ´ÓÅäÖÃÎÄ¼þ£¨°üÀ¨ÓÃ»§»úÃÜ£©¼ÓÔØ»ù´¡ÅäÖÃ
+        // ï¿½ï¿½ï¿½È´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ã»ï¿½ï¿½ï¿½ï¿½Ü£ï¿½ï¿½ï¿½ï¿½Ø»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
         builder.Configuration.GetSection("SmtpSettings").Bind(options);
 
-        // È»ºóÓÃ»·¾³±äÁ¿¸²¸Ç£¨Èç¹û´æÔÚ£©
+        // È»ï¿½ï¿½ï¿½Ã»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ç£ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ú£ï¿½
         var smtpHost = Environment.GetEnvironmentVariable("NOTIFYHUB_SMTP_HOST");
         if (!string.IsNullOrEmpty(smtpHost))
             options.Host = smtpHost;
@@ -129,29 +129,29 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
         if (!string.IsNullOrEmpty(smtpFromName))
             options.FromName = smtpFromName;
 
-        // ¼ÇÂ¼ÅäÖÃÀ´Ô´£¨ÓÃÓÚµ÷ÊÔ£©
-        var configSource = !string.IsNullOrEmpty(smtpHost) ? "»·¾³±äÁ¿" : "ÅäÖÃÎÄ¼þ/ÓÃ»§»úÃÜ";
-        Log.Information("SMTPÅäÖÃÒÑ¼ÓÔØ£¬À´Ô´: {Source}", configSource);
+        // ï¿½ï¿½Â¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ô´ï¿½ï¿½ï¿½ï¿½ï¿½Úµï¿½ï¿½Ô£ï¿½
+        var configSource = !string.IsNullOrEmpty(smtpHost) ? "ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½" : "ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½/ï¿½Ã»ï¿½ï¿½ï¿½ï¿½ï¿½";
+        Log.Information("SMTPï¿½ï¿½ï¿½ï¿½ï¿½Ñ¼ï¿½ï¿½Ø£ï¿½ï¿½ï¿½Ô´: {Source}", configSource);
     });
 
-    // ×¢²á·þÎñ
+    // ×¢ï¿½ï¿½ï¿½ï¿½ï¿½
     services.AddScoped<IEmailService, SimpleEmailService>();
     services.AddSingleton<IApiKeyService, ApiKeyService>();
 
-    // ËÙÂÊÏÞÖÆºÍ»º´æ
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ÆºÍ»ï¿½ï¿½ï¿½
     services.AddMemoryCache();
     services.Configure<IpRateLimitOptions>(configuration.GetSection("IpRateLimiting"));
     services.Configure<IpRateLimitPolicies>(configuration.GetSection("IpRateLimitPolicies"));
     services.AddInMemoryRateLimiting();
     services.AddSingleton<IRateLimitConfiguration, RateLimitConfiguration>();
 
-    // ½¡¿µ¼ì²é
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     services.AddHealthChecks()
     .AddCheck("smtp", () =>
     {
         try
         {
-            // ¼ì²éSMTPÅäÖÃ - ÓÅÏÈ¼¶£º»·¾³±äÁ¿ > ÓÃ»§»úÃÜ > ÅäÖÃÎÄ¼þ
+            // ï¿½ï¿½ï¿½SMTPï¿½ï¿½ï¿½ï¿½ - ï¿½ï¿½ï¿½È¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ > ï¿½Ã»ï¿½ï¿½ï¿½ï¿½ï¿½ > ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½
             var smtpHost = Environment.GetEnvironmentVariable("NOTIFYHUB_SMTP_HOST")
                           ?? builder.Configuration["SmtpSettings:Host"];
             var smtpUsername = Environment.GetEnvironmentVariable("NOTIFYHUB_SMTP_USERNAME")
@@ -163,30 +163,30 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
                 !string.IsNullOrEmpty(smtpUsername) &&
                 !string.IsNullOrEmpty(smtpPassword))
             {
-                return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy($"SMTPÅäÖÃÍêÕû: {smtpHost}");
+                return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy($"SMTPï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½: {smtpHost}");
             }
 
-            return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("SMTPÅäÖÃ²»ÍêÕû");
+            return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("SMTPï¿½ï¿½ï¿½Ã²ï¿½ï¿½ï¿½ï¿½ï¿½");
         }
         catch (Exception ex)
         {
-            return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy($"SMTP¼ì²éÊ§°Ü: {ex.Message}");
+            return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy($"SMTPï¿½ï¿½ï¿½Ê§ï¿½ï¿½: {ex.Message}");
         }
     })
     .AddCheck("apikeys", () =>
     {
         try
         {
-            // ¼ì²éAPIÃÜÔ¿ - ÓÅÏÈ¼¶£º»·¾³±äÁ¿ > ÓÃ»§»úÃÜ > ÅäÖÃÎÄ¼þ
+            // ï¿½ï¿½ï¿½APIï¿½ï¿½Ô¿ - ï¿½ï¿½ï¿½È¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ > ï¿½Ã»ï¿½ï¿½ï¿½ï¿½ï¿½ > ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½
             var apiKeyCount = 0;
 
-            // 1. ¼ì²é»·¾³±äÁ¿
+            // 1. ï¿½ï¿½é»·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
             var envVars = Environment.GetEnvironmentVariables()
                 .Cast<System.Collections.DictionaryEntry>()
                 .Count(kv => kv.Key.ToString()?.StartsWith("NOTIFYHUB_APIKEY_") == true);
             apiKeyCount += envVars;
 
-            // 2. ¼ì²éÓÃ»§»úÃÜºÍÅäÖÃÎÄ¼þÖÐµÄApiKeys²¿·Ö
+            // 2. ï¿½ï¿½ï¿½ï¿½Ã»ï¿½ï¿½ï¿½ï¿½Üºï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½ï¿½Ðµï¿½ApiKeysï¿½ï¿½ï¿½ï¿½
             var apiKeysSection = builder.Configuration.GetSection("ApiKeys");
             if (apiKeysSection.Exists())
             {
@@ -196,25 +196,31 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
                 apiKeyCount += configApiKeys;
             }
 
-            return apiKeyCount > 0
-                ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy($"·¢ÏÖ{apiKeyCount}¸öAPIÃÜÔ¿")
-                : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("Î´¼ì²âµ½APIÃÜÔ¿");
+            if (apiKeyCount > 0)
+            {
+                // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê¾ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê¾ï¿½ï¿½ï¿½ï¿½
+                var message = builder.Environment.IsDevelopment()
+                    ? $"ï¿½ï¿½ï¿½ï¿½{apiKeyCount}ï¿½ï¿½APIï¿½ï¿½Ô¿"
+                    : "APIï¿½ï¿½Ô¿ï¿½ï¿½ï¿½Ã³ï¿½ï¿½ï¿½";
+                return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy(message);
+            }
+            return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("Î´ï¿½ï¿½âµ½APIï¿½ï¿½Ô¿");
         }
         catch (Exception ex)
         {
-            return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy($"APIÃÜÔ¿¼ì²éÊ§°Ü: {ex.Message}");
+            return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy($"APIï¿½ï¿½Ô¿ï¿½ï¿½ï¿½Ê§ï¿½ï¿½: {ex.Message}");
         }
     });
 
-    // CORSÅäÖÃ
+    // CORSï¿½ï¿½ï¿½ï¿½
     services.AddCors(options =>
     {
         options.AddPolicy("AllowOrigins", policy =>
         {
             var allowedOrigins = configuration.GetSection("Security:AllowedHosts").Get<string[]>()
-                ?? new[] { "https://notify.origami7023.cn" };
+                ?? new[] { "https://notify.downf.cn" };
 
-            // Ö»ÔÊÐíHTTPS origins (Éú²ú»·¾³)
+            // Ö»ï¿½ï¿½ï¿½ï¿½HTTPS origins (ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½)
             var httpsOrigins = allowedOrigins
                 .Where(origin => !origin.StartsWith("localhost"))
                 .Select(origin => origin.StartsWith("http") ? origin : $"https://{origin}")
@@ -222,7 +228,7 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
 
             if (builder.Environment.IsDevelopment())
             {
-                // ¿ª·¢»·¾³ÔÊÐílocalhost
+                // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½localhost
                 httpsOrigins = httpsOrigins.Concat(new[] { "http://localhost:3000", "https://localhost:7000" }).ToArray();
             }
 
@@ -233,7 +239,7 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
         });
     });
 
-    // HTTPSÖØ¶¨ÏòÅäÖÃ
+    // HTTPSï¿½Ø¶ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     if (!builder.Environment.IsDevelopment())
     {
         services.AddHsts(options =>
@@ -247,7 +253,7 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
 
 void ConfigurePipeline(WebApplication app)
 {
-    // ¿ª·¢»·¾³ÅäÖÃ
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     if (app.Environment.IsDevelopment())
     {
         app.UseDeveloperExceptionPage();
@@ -260,53 +266,53 @@ void ConfigurePipeline(WebApplication app)
     }
     else
     {
-        // Ç¿ÖÆHTTPS
+        // Ç¿ï¿½ï¿½HTTPS
         app.UseHsts();
     }
 
-    // === °²È«ÖÐ¼ä¼þÁ´ ===
-    // 1. È«¾ÖÒì³£´¦Àí£¨×îÍâ²ã£©
+    // === ï¿½ï¿½È«ï¿½Ð¼ï¿½ï¿½ï¿½ï¿½ ===
+    // 1. È«ï¿½ï¿½ï¿½ì³£ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ã£©
     app.UseGlobalExceptionHandler();
 
-    // 2. ÔöÇ¿°²È«¼ì²â£¨Ìæ´úÔ­À´µÄ°²È«É¨Ãè¼ì²â£©
+    // 2. ï¿½ï¿½Ç¿ï¿½ï¿½È«ï¿½ï¿½â£¨ï¿½ï¿½ï¿½Ô­ï¿½ï¿½ï¿½Ä°ï¿½È«É¨ï¿½ï¿½ï¿½â£©
     app.UseEnhancedSecurity();
 
-    // 3. °²È«Í·ÉèÖÃ
+    // 3. ï¿½ï¿½È«Í·ï¿½ï¿½ï¿½ï¿½
     if (app.Configuration.GetValue<bool>("Security:EnableSecurityHeaders", true))
     {
         app.UseSecurityHeaders();
     }
 
-    // 4. Ö÷»ú¹ýÂË£¨×èÖ¹Ö±½ÓIP·ÃÎÊ£©
+    // 4. ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ë£ï¿½ï¿½ï¿½Ö¹Ö±ï¿½ï¿½IPï¿½ï¿½ï¿½Ê£ï¿½
     if (app.Configuration.GetValue<bool>("Security:BlockDirectIpAccess", true))
     {
         app.UseCustomHostFiltering();
     }
 
-    // 5. ÇëÇóÑéÖ¤£¨´óÐ¡ºÍÄÚÈÝÐ£Ñé£©
+    // 5. ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö¤ï¿½ï¿½ï¿½ï¿½Ð¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð£ï¿½é£©
     app.UseRequestValidation();
 
-    // 6. HTTPSÖØ¶¨Ïò
+    // 6. HTTPSï¿½Ø¶ï¿½ï¿½ï¿½
     if (app.Configuration.GetValue<bool>("Security:RequireHttps", true))
     {
         app.UseHttpsRedirection();
     }
 
-    // 7. CORSÅäÖÃ
+    // 7. CORSï¿½ï¿½ï¿½ï¿½
     app.UseCors("AllowOrigins");
 
-    // 8. ÏÞÁ÷£¨ÈÏÖ¤Ö®Ç°£©
+    // 8. ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö¤Ö®Ç°ï¿½ï¿½
     app.UseIpRateLimiting();
 
-    // 9. APIÃÜÔ¿ÈÏÖ¤
+    // 9. APIï¿½ï¿½Ô¿ï¿½ï¿½Ö¤
     app.UseApiKeyAuthentication();
 
-    // === Ó¦ÓÃ³ÌÐòÖÐ¼ä¼þ ===
+    // === Ó¦ï¿½Ã³ï¿½ï¿½ï¿½ï¿½Ð¼ï¿½ï¿½ ===
     app.UseRouting();
     app.UseAuthorization();
     app.MapControllers();
 
-    // === ¼à¿ØºÍÐÅÏ¢¶Ëµã ===
+    // === ï¿½ï¿½Øºï¿½ï¿½ï¿½Ï¢ï¿½Ëµï¿½ ===
     app.MapHealthChecks("/health");
     app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
     {
@@ -317,7 +323,7 @@ void ConfigurePipeline(WebApplication app)
         Predicate = _ => false
     });
 
-    // Ä¬ÈÏÂ·ÓÉ - ÏÔÊ¾Swagger
+    // Ä¬ï¿½ï¿½Â·ï¿½ï¿½ - ï¿½ï¿½Ê¾Swagger
     if (app.Environment.IsDevelopment())
     {
         app.MapGet("/", () => Results.Redirect("/swagger"));
@@ -327,12 +333,12 @@ void ConfigurePipeline(WebApplication app)
         app.MapGet("/", () => Results.Json(new
         {
             message = "NotifyHub API",
-            status = "ÔËÐÐÕý³£",
+            status = "ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½",
             timestamp = DateTime.UtcNow
         }));
     }
 
-    // ·þÎñ×´Ì¬ÐÅÏ¢¶Ëµã
+    // ï¿½ï¿½ï¿½ï¿½×´Ì¬ï¿½ï¿½Ï¢ï¿½Ëµï¿½
     app.MapGet("/info", () =>
     {
         try
@@ -362,8 +368,8 @@ void ConfigurePipeline(WebApplication app)
         }
         catch (Exception ex)
         {
-            app.Logger.LogError(ex, "»ñÈ¡·þÎñÐÅÏ¢Ê§°Ü");
-            return Results.Problem("·þÎñÐÅÏ¢»ñÈ¡Ê§°Ü");
+            app.Logger.LogError(ex, "ï¿½ï¿½È¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ï¢Ê§ï¿½ï¿½");
+            return Results.Problem("ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ï¢ï¿½ï¿½È¡Ê§ï¿½ï¿½");
         }
     }).RequireRateLimiting("DefaultPolicy");
 }

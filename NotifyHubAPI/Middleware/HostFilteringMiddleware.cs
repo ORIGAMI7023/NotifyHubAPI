@@ -23,7 +23,7 @@ namespace NotifyHubAPI.Middleware
 
             // 从配置读取允许的主机
             var allowedHosts = configuration.GetSection("Security:AllowedHosts").Get<string[]>()
-                ?? new[] { "notify.origami7023.cn", "localhost" };
+                ?? new[] { "notify.downf.cn", "localhost" };
 
             _allowedHosts = new HashSet<string>(allowedHosts, StringComparer.OrdinalIgnoreCase);
 

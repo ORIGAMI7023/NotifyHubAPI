@@ -71,11 +71,11 @@ namespace NotifyHubAPI.Services
             var status = isSuccess ? "成功" : "失败";
             var logLine = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] 邮件发送{status} | EmailId: {emailId} | RequestId: {requestId} | Project: {projectName} | " +
                          $"Category: {emailRequest.Category} | Subject: {emailRequest.Subject} | " +
-                         $"To: {(emailRequest.To != null ? string.Join(", ", emailRequest.To) : "")} | " +
-                         $"Cc: {(emailRequest.Cc != null ? string.Join(", ", emailRequest.Cc) : "")} | " +
+                         $"To: {MaskEmailList(emailRequest.To)} | " +
+                         $"Cc: {MaskEmailList(emailRequest.Cc)} | " +
                          $"Bcc: {(emailRequest.Bcc != null ? $"[{emailRequest.Bcc.Count} recipients]" : "")} | " +
                          $"Recipients: {recipientCount} | Priority: {emailRequest.Priority} | IsHtml: {emailRequest.IsHtml} | " +
-                         $"BodyLength: {emailRequest.Body?.Length ?? 0} | From: {_smtpSettings.FromEmail} | " +
+                         $"BodyLength: {emailRequest.Body?.Length ?? 0} | From: {MaskEmail(_smtpSettings.FromEmail ?? "")} | " +
                          $"SentAt: {DateTime.UtcNow:O}";
 
             // 如果是失败状态，添加错误信息
@@ -114,6 +114,41 @@ namespace NotifyHubAPI.Services
                 return "FMS_DATA_PROCESSOR";
 
             return "UNKNOWN";
+        }
+
+        /// <summary>
+        /// 邮箱地址脱敏处理
+        /// 例如：user@example.com -> u***@example.com
+        /// </summary>
+        private string MaskEmail(string email)
+        {
+            if (string.IsNullOrEmpty(email))
+                return "";
+
+            var atIndex = email.IndexOf('@');
+            if (atIndex <= 0)
+                return email; // 无效邮箱，直接返回
+
+            var localPart = email.Substring(0, atIndex);
+            var domainPart = email.Substring(atIndex);
+
+            // 只显示第一个字符，其余用***替代
+            var maskedLocal = localPart.Length > 1
+                ? localPart[0] + "***"
+                : localPart;
+
+            return maskedLocal + domainPart;
+        }
+
+        /// <summary>
+        /// 批量脱敏邮箱列表
+        /// </summary>
+        private string MaskEmailList(List<string>? emails)
+        {
+            if (emails == null || emails.Count == 0)
+                return "";
+
+            return string.Join(", ", emails.Select(MaskEmail));
         }
 
         public Task<bool> RetryEmailAsync(Guid emailId, CancellationToken cancellationToken = default)
