@@ -15,7 +15,9 @@
 
 | 文件名 | 说明 |
 |--------|------|
-| `upload.md` | 完整部署文档（首次部署和更新） |
+| `LINUX_DEPLOYMENT_GUIDE.md` | 完整部署指南 |
+| `CHANGELOG.md` | 修改日志 |
+| `upload.md` | 部署命令（首次部署和更新） |
 | `quick-update.md` | 快速更新命令（日常使用） |
 | `README.md` | 本文件 |
 
@@ -52,9 +54,9 @@ ssh root@downf.cn "sudo systemctl restart notifyhub"
 **文件**：`notifyhub.service`
 
 **关键配置**：
-- 运行用户：`www-data`
+- 运行用户：`nginx`
 - 工作目录：`/var/www/notifyhub`
-- 监听地址：`http://localhost:5000`
+- 监听地址：`http://localhost:5002`
 - 环境变量：包含API密钥和SMTP配置
 
 **⚠️ 注意**：首次部署时需要修改环境变量中的敏感信息：
@@ -68,7 +70,7 @@ ssh root@downf.cn "sudo systemctl restart notifyhub"
 **关键配置**：
 - HTTP自动跳转HTTPS
 - SSL/TLS 1.2/1.3
-- 反向代理到 `localhost:5000`
+- 反向代理到 `localhost:5002`
 - 安全响应头（HSTS、CSP等）
 - 请求体大小限制：1MB
 
@@ -83,9 +85,9 @@ ssh root@downf.cn "sudo systemctl restart notifyhub"
 | **应用名称** | NotifyHub API |
 | **域名** | notify.downf.cn |
 | **应用目录** | /var/www/notifyhub |
-| **监听端口** | localhost:5000 |
+| **监听端口** | localhost:5002 |
 | **服务名** | notifyhub |
-| **运行用户** | www-data |
+| **运行用户** | nginx |
 | **发布目录** | D:\Programing\C#\NotifyHubAPI\NotifyHubAPI\bin\Release\net8.0\publish |
 
 ---
@@ -141,8 +143,8 @@ curl https://notify.downf.cn/health
 
 ## 📚 相关文档
 
-- [完整部署指南](../Deploy/LINUX_DEPLOYMENT_GUIDE.md)
-- [修改日志](../Deploy/CHANGELOG.md)
+- [完整部署指南](LINUX_DEPLOYMENT_GUIDE.md)
+- [修改日志](CHANGELOG.md)
 - [上传命令](upload.md)
 - [快速更新](quick-update.md)
 
