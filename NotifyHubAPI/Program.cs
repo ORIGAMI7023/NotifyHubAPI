@@ -212,25 +212,29 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
     {
         options.AddPolicy("AllowOrigins", policy =>
         {
-            var allowedOrigins = configuration.GetSection("Security:AllowedHosts").Get<string[]>()
-                ?? new[] { "https://notify.downf.cn" };
-
-            // ֻ����HTTPS origins (��������)
-            var httpsOrigins = allowedOrigins
-                .Where(origin => !origin.StartsWith("localhost"))
-                .Select(origin => origin.StartsWith("http") ? origin : $"https://{origin}")
-                .ToArray();
-
             if (builder.Environment.IsDevelopment())
             {
-                // ������������localhost
-                httpsOrigins = httpsOrigins.Concat(new[] { "http://localhost:3000", "https://localhost:7000" }).ToArray();
+                // ������������������Դ���������ԣ�
+                policy.AllowAnyOrigin()
+                      .AllowAnyMethod()
+                      .AllowAnyHeader();
             }
+            else
+            {
+                // ������������ϸ�����������Դ
+                var allowedOrigins = configuration.GetSection("Security:AllowedHosts").Get<string[]>()
+                    ?? new[] { "https://notify.downf.cn" };
 
-            policy.WithOrigins(httpsOrigins)
-                  .AllowAnyMethod()
-                  .AllowAnyHeader()
-                  .AllowCredentials();
+                var httpsOrigins = allowedOrigins
+                    .Where(origin => !origin.StartsWith("localhost"))
+                    .Select(origin => origin.StartsWith("http") ? origin : $"https://{origin}")
+                    .ToArray();
+
+                policy.WithOrigins(httpsOrigins)
+                      .AllowAnyMethod()
+                      .AllowAnyHeader()
+                      .AllowCredentials();
+            }
         });
     });
 
