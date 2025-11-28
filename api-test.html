@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NotifyHub API 测试工具</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .section {
+            margin-bottom: 30px;
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 15px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #667eea;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            color: #555;
+            margin-bottom: 5px;
+        }
+
+        input[type="text"],
+        input[type="password"],
+        input[type="url"],
+        textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus,
+        input[type="password"]:focus,
+        input[type="url"]:focus,
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+            font-family: inherit;
+        }
+
+        .input-hint {
+            font-size: 12px;
+            color: #888;
+            margin-top: 4px;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #218838;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .response-area {
+            margin-top: 20px;
+        }
+
+        .response-box {
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 15px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .response-box.success {
+            background: #d4edda;
+            border-color: #c3e6cb;
+            color: #155724;
+        }
+
+        .response-box.error {
+            background: #f8d7da;
+            border-color: #f5c6cb;
+            color: #721c24;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.8s linear infinite;
+            margin-left: 8px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        @media (max-width: 768px) {
+            .grid-2 {
+                grid-template-columns: 1fr;
+            }
+
+            .button-group {
+                flex-direction: column;
+            }
+
+            button {
+                width: 100%;
+            }
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-indicator.success {
+            background: #28a745;
+        }
+
+        .status-indicator.error {
+            background: #dc3545;
+        }
+
+        .status-indicator.warning {
+            background: #ffc107;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: auto;
+            cursor: pointer;
+        }
+
+        .checkbox-group label {
+            margin: 0;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📧 NotifyHub API 测试工具</h1>
+            <p>可视化测试界面 - 无需命令行，直接在浏览器中测试API</p>
+        </div>
+
+        <div class="content">
+            <!-- API 配置 -->
+            <div class="section">
+                <div class="section-title">⚙️ API 配置</div>
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label for="apiUrl">API 地址</label>
+                        <input type="url" id="apiUrl" placeholder="https://notify.downf.cn" value="http://localhost:5002">
+                        <div class="input-hint">例如: http://localhost:5002 或 https://notify.downf.cn</div>
+                    </div>
+                    <div class="form-group">
+                        <label for="apiKey">API Key</label>
+                        <input type="password" id="apiKey" placeholder="请输入您的API Key">
+                        <div class="input-hint">请填入您的API Key（不会被保存）</div>
+                    </div>
+                </div>
+                <div class="button-group">
+                    <button class="btn-success" onclick="testHealthCheck()">
+                        🏥 健康检查
+                    </button>
+                    <button class="btn-secondary" onclick="clearResponse()">
+                        🗑️ 清空结果
+                    </button>
+                </div>
+            </div>
+
+            <!-- 发送邮件 -->
+            <div class="section">
+                <div class="section-title">📨 发送邮件</div>
+                <div class="form-group">
+                    <label for="emailTo">收件人 (To) *</label>
+                    <input type="text" id="emailTo" placeholder="recipient@example.com, user@domain.com">
+                    <div class="input-hint">多个邮箱用逗号分隔，最多100个</div>
+                </div>
+
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label for="emailCc">抄送 (Cc)</label>
+                        <input type="text" id="emailCc" placeholder="cc@example.com">
+                    </div>
+                    <div class="form-group">
+                        <label for="emailBcc">密送 (Bcc)</label>
+                        <input type="text" id="emailBcc" placeholder="bcc@example.com">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="emailSubject">主题 *</label>
+                    <input type="text" id="emailSubject" placeholder="邮件主题">
+                </div>
+
+                <div class="form-group">
+                    <label for="emailBodyHtml">HTML 正文</label>
+                    <textarea id="emailBodyHtml" placeholder="<h1>Hello</h1><p>这是HTML格式的邮件正文</p>"></textarea>
+                    <div class="input-hint">支持HTML标签，如果提供则优先使用</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="emailBodyText">纯文本正文</label>
+                    <textarea id="emailBodyText" placeholder="这是纯文本格式的邮件正文"></textarea>
+                    <div class="input-hint">如果没有提供HTML正文，则使用此字段</div>
+                </div>
+
+                <div class="form-group">
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="isHtml" checked>
+                        <label for="isHtml">使用 HTML 格式</label>
+                    </div>
+                </div>
+
+                <div class="button-group">
+                    <button class="btn-primary" onclick="sendEmail()">
+                        📤 发送邮件
+                    </button>
+                    <button class="btn-secondary" onclick="fillTestData()">
+                        📝 填充测试数据
+                    </button>
+                </div>
+            </div>
+
+            <!-- 响应结果 -->
+            <div class="section response-area">
+                <div class="section-title">📋 响应结果</div>
+                <div id="responseBox" class="response-box">
+等待API响应...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 测试健康检查
+        async function testHealthCheck() {
+            const apiUrl = document.getElementById('apiUrl').value.trim();
+            if (!apiUrl) {
+                showResponse('请先填写API地址', 'error');
+                return;
+            }
+
+            showResponse('正在检查服务健康状态...', '');
+
+            try {
+                const response = await fetch(`${apiUrl}/health`, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showResponse(
+                        `✅ 健康检查成功 (${response.status})\n\n` +
+                        JSON.stringify(data, null, 2),
+                        'success'
+                    );
+                } else {
+                    showResponse(
+                        `❌ 健康检查失败 (${response.status})\n\n` +
+                        JSON.stringify(data, null, 2),
+                        'error'
+                    );
+                }
+            } catch (error) {
+                showResponse(`❌ 请求失败\n\n错误: ${error.message}`, 'error');
+            }
+        }
+
+        // 发送邮件
+        async function sendEmail() {
+            const apiUrl = document.getElementById('apiUrl').value.trim();
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const emailTo = document.getElementById('emailTo').value.trim();
+            const emailSubject = document.getElementById('emailSubject').value.trim();
+            const emailBodyHtml = document.getElementById('emailBodyHtml').value.trim();
+            const emailBodyText = document.getElementById('emailBodyText').value.trim();
+            const emailCc = document.getElementById('emailCc').value.trim();
+            const emailBcc = document.getElementById('emailBcc').value.trim();
+            const isHtml = document.getElementById('isHtml').checked;
+
+            // 验证必填字段
+            if (!apiUrl) {
+                showResponse('请填写API地址', 'error');
+                return;
+            }
+            if (!apiKey) {
+                showResponse('请填写API Key', 'error');
+                return;
+            }
+            if (!emailTo) {
+                showResponse('请填写收件人地址', 'error');
+                return;
+            }
+            if (!emailSubject) {
+                showResponse('请填写邮件主题', 'error');
+                return;
+            }
+            if (!emailBodyHtml && !emailBodyText) {
+                showResponse('请至少填写一种邮件正文（HTML或纯文本）', 'error');
+                return;
+            }
+
+            // 构建请求体
+            const requestBody = {
+                to: emailTo.split(',').map(e => e.trim()).filter(e => e),
+                subject: emailSubject,
+                isHtml: isHtml
+            };
+
+            // 添加正文
+            if (isHtml && emailBodyHtml) {
+                requestBody.bodyHtml = emailBodyHtml;
+            }
+            if (emailBodyText) {
+                requestBody.bodyText = emailBodyText;
+            }
+
+            // 添加抄送
+            if (emailCc) {
+                requestBody.cc = emailCc.split(',').map(e => e.trim()).filter(e => e);
+            }
+
+            // 添加密送
+            if (emailBcc) {
+                requestBody.bcc = emailBcc.split(',').map(e => e.trim()).filter(e => e);
+            }
+
+            showResponse('正在发送邮件...', '');
+
+            try {
+                const response = await fetch(`${apiUrl}/api/email/send`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-API-Key': apiKey
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showResponse(
+                        `✅ 邮件发送成功 (${response.status})\n\n` +
+                        JSON.stringify(data, null, 2),
+                        'success'
+                    );
+                } else {
+                    showResponse(
+                        `❌ 邮件发送失败 (${response.status})\n\n` +
+                        JSON.stringify(data, null, 2),
+                        'error'
+                    );
+                }
+            } catch (error) {
+                showResponse(`❌ 请求失败\n\n错误: ${error.message}`, 'error');
+            }
+        }
+
+        // 填充测试数据
+        function fillTestData() {
+            document.getElementById('emailTo').value = 'test@example.com';
+            document.getElementById('emailSubject').value = 'NotifyHub API 测试邮件';
+            document.getElementById('emailBodyHtml').value = '<h1>测试邮件</h1><p>这是一封来自NotifyHub API的测试邮件。</p><p>发送时间: ' + new Date().toLocaleString('zh-CN') + '</p>';
+            document.getElementById('emailBodyText').value = '测试邮件\n\n这是一封来自NotifyHub API的测试邮件。\n\n发送时间: ' + new Date().toLocaleString('zh-CN');
+            document.getElementById('isHtml').checked = true;
+
+            showResponse('✅ 已填充测试数据，请修改收件人地址后发送', 'success');
+        }
+
+        // 显示响应结果
+        function showResponse(message, type) {
+            const responseBox = document.getElementById('responseBox');
+            responseBox.textContent = message;
+            responseBox.className = 'response-box';
+
+            if (type === 'success') {
+                responseBox.classList.add('success');
+            } else if (type === 'error') {
+                responseBox.classList.add('error');
+            }
+        }
+
+        // 清空响应
+        function clearResponse() {
+            document.getElementById('responseBox').textContent = '等待API响应...';
+            document.getElementById('responseBox').className = 'response-box';
+        }
+
+        // 页面加载时的提示
+        window.addEventListener('load', function() {
+            console.log('NotifyHub API 测试工具已加载');
+            console.log('请填写API地址和API Key后开始测试');
+        });
+    </script>
+</body>
+</html>
