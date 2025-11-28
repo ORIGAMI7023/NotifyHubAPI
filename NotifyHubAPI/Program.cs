@@ -44,11 +44,6 @@ void ConfigureServices(IServiceCollection services, IConfiguration configuration
     services.AddEndpointsApiExplorer();
 
     // �����С����
-    services.Configure<IISServerOptions>(options =>
-    {
-        options.MaxRequestBodySize = configuration.GetValue<long>("Security:MaxRequestSizeBytes", 1024 * 1024);
-    });
-
     services.Configure<KestrelServerOptions>(options =>
     {
         options.Limits.MaxRequestBodySize = configuration.GetValue<long>("Security:MaxRequestSizeBytes", 1024 * 1024);

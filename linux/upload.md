@@ -6,6 +6,10 @@
 scp -r D:\Programing\C#\NotifyHubAPI\NotifyHubAPI\bin\Release\net8.0\publish\* root@downf.cn:/var/www/notifyhub/
 ```
 
+## 1.1 设置权限（如果 logs 被覆盖）
+
+sudo chown -R nginx:nginx /var/www/notifyhub/logs
+
 ## 2. 上传配置文件（直接覆盖）
 
 ```bash
@@ -15,6 +19,8 @@ scp D:\Programing\C#\NotifyHubAPI\linux\notify.downf.cn.conf root@downf.cn:/etc/
 # 上传 systemd 服务配置
 scp D:\Programing\C#\NotifyHubAPI\linux\notifyhub.service root@downf.cn:/etc/systemd/system/notifyhub.service
 ```
+
+
 
 ## 3. 配置应用（在服务器上执行）
 
