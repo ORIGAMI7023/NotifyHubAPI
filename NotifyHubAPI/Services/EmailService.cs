@@ -9,13 +9,16 @@ namespace NotifyHubAPI.Services
     {
         private readonly SmtpSettings _smtpSettings;
         private readonly ILogger<SimpleEmailService> _logger;
+        private readonly IAttachmentValidator _attachmentValidator;
 
         public SimpleEmailService(
             IOptions<SmtpSettings> smtpSettings,
-            ILogger<SimpleEmailService> logger)
+            ILogger<SimpleEmailService> logger,
+            IAttachmentValidator attachmentValidator)
         {
             _smtpSettings = smtpSettings.Value;
             _logger = logger;
+            _attachmentValidator = attachmentValidator;
         }
 
         public async Task<EmailSendResponse> SendEmailAsync(EmailRequest emailRequest, string apiKey, CancellationToken cancellationToken = default)
@@ -68,6 +71,10 @@ namespace NotifyHubAPI.Services
                                (emailRequest.Cc?.Count ?? 0) +
                                (emailRequest.Bcc?.Count ?? 0);
 
+            var attachmentInfo = emailRequest.Attachments?.Any() == true
+                ? $" | Attachments: {emailRequest.Attachments.Count} files, {GetTotalAttachmentSize(emailRequest.Attachments) / 1024.0 / 1024:F2}MB"
+                : "";
+
             var status = isSuccess ? "成功" : "失败";
             var logLine = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] 邮件发送{status} | EmailId: {emailId} | RequestId: {requestId} | Project: {projectName} | " +
                          $"Category: {emailRequest.Category} | Subject: {emailRequest.Subject} | " +
@@ -75,7 +82,7 @@ namespace NotifyHubAPI.Services
                          $"Cc: {MaskEmailList(emailRequest.Cc)} | " +
                          $"Bcc: {(emailRequest.Bcc != null ? $"[{emailRequest.Bcc.Count} recipients]" : "")} | " +
                          $"Recipients: {recipientCount} | Priority: {emailRequest.Priority} | IsHtml: {emailRequest.IsHtml} | " +
-                         $"BodyLength: {emailRequest.Body?.Length ?? 0} | From: {MaskEmail(_smtpSettings.FromEmail ?? "")} | " +
+                         $"BodyLength: {emailRequest.Body?.Length ?? 0}{attachmentInfo} | From: {MaskEmail(_smtpSettings.FromEmail ?? "")} | " +
                          $"SentAt: {DateTime.UtcNow:O}";
 
             // 如果是失败状态，添加错误信息
@@ -151,6 +158,14 @@ namespace NotifyHubAPI.Services
             return string.Join(", ", emails.Select(MaskEmail));
         }
 
+        /// <summary>
+        /// 估算附件总大小（Base64 解码后）
+        /// </summary>
+        private static long GetTotalAttachmentSize(Dictionary<string, string> attachments)
+        {
+            return attachments.Sum(a => a.Value.Length * 3 / 4);
+        }
+
         public Task<bool> RetryEmailAsync(Guid emailId, CancellationToken cancellationToken = default)
         {
             _logger.LogWarning("简化版本不支持邮件重试功能");
@@ -221,12 +236,48 @@ namespace NotifyHubAPI.Services
                 _ => MessagePriority.Normal
             };
 
-            // 设置邮件正文
-            var textFormat = emailRequest.IsHtml ? TextFormat.Html : TextFormat.Plain;
-            message.Body = new TextPart(textFormat)
+            // 附件处理
+            if (emailRequest.Attachments != null && emailRequest.Attachments.Any())
             {
-                Text = emailRequest.Body
-            };
+                // 1. 验证附件
+                var validationResult = _attachmentValidator.Validate(emailRequest.Attachments);
+                if (!validationResult.IsValid)
+                {
+                    throw new ArgumentException(string.Join("; ", validationResult.Errors));
+                }
+
+                // 2. 创建多部分邮件
+                var multipart = new Multipart("mixed");
+
+                // 添加正文
+                var textFormat = emailRequest.IsHtml ? TextFormat.Html : TextFormat.Plain;
+                multipart.Add(new TextPart(textFormat) { Text = emailRequest.Body });
+
+                // 添加附件
+                foreach (var attachment in validationResult.ValidatedAttachments)
+                {
+                    var mimePart = new MimePart(attachment.MimeType)
+                    {
+                        Content = new MimeContent(new MemoryStream(attachment.Content)),
+                        ContentDisposition = new ContentDisposition(ContentDisposition.Attachment),
+                        ContentTransferEncoding = ContentEncoding.Base64,
+                        FileName = attachment.FileName
+                    };
+
+                    multipart.Add(mimePart);
+                }
+
+                message.Body = multipart;
+            }
+            else
+            {
+                // 无附件，使用原有逻辑
+                var textFormat = emailRequest.IsHtml ? TextFormat.Html : TextFormat.Plain;
+                message.Body = new TextPart(textFormat)
+                {
+                    Text = emailRequest.Body
+                };
+            }
 
             // 发送邮件
             using var smtpClient = new SmtpClient();

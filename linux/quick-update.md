@@ -4,16 +4,16 @@
 
 ```bash
 # 1. 上传应用文件
-scp -r D:\Programing\C#\NotifyHubAPI\NotifyHubAPI\bin\Release\net8.0\publish\* root@downf.cn:/var/www/notifyhub/
+scp -r D:\Programing\C#\NotifyHubAPI\NotifyHubAPI\bin\Release\net8.0\publish\* origami@downf.cn:/var/www/notifyhub/
 
 # 2. 重启服务（在服务器上执行）
-ssh root@downf.cn "sudo systemctl restart notifyhub && sudo systemctl status notifyhub"
+ssh origami@downf.cn "sudo systemctl restart notifyhub && sudo systemctl status notifyhub"
 ```
 
 ## 仅更新应用（不重启）
 
 ```bash
-scp -r D:\Programing\C#\NotifyHubAPI\NotifyHubAPI\bin\Release\net8.0\publish\* root@downf.cn:/var/www/notifyhub/
+scp -r D:\Programing\C#\NotifyHubAPI\NotifyHubAPI\bin\Release\net8.0\publish\* origami@downf.cn:/var/www/notifyhub/
 ```
 
 ## 仅重启服务（服务器端）

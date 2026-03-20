@@ -6,7 +6,7 @@ NotifyHub 是一个邮件通知服务 API，提供简单、安全的邮件发送
 
 **基础信息**
 - 服务地址：`https://notify.downf.cn`
-- API 版本：`v1.0.1`
+- API 版本：`v1.0`
 - 协议：HTTPS
 - 数据格式：JSON
 
@@ -63,6 +63,14 @@ Authorization: Bearer nh-prod-Y63jT32xDaxWy1Ek******
 - 收件人总数（to + cc + bcc）不超过 100 个
 - 频率限制：1分钟5次，1小时50次
 
+**附件限制**
+- 单个附件最大 5MB
+- 最多 5 个附件
+- 附件总大小最大 15MB
+- 必须使用 Base64 编码
+- 不允许的文件类型: .exe, .bat, .cmd, .com, .pif, .scr, .vbs, .js, .jar
+- 文件名支持中文，最长255字符
+
 **请求示例**
 
 ```bash
@@ -79,18 +87,54 @@ curl -X POST https://notify.downf.cn/api/email/send \
   }'
 ```
 
+**带附件的请求示例**
+
+```bash
+curl -X POST https://notify.downf.cn/api/email/send \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer nh-prod-Y63jT32xDaxWy1Ek******" \
+  -d '{
+    "to": ["user@example.com"],
+    "subject": "月度报告",
+    "body": "<h1>请查看附件中的月度报告</h1>",
+    "category": "report",
+    "isHtml": true,
+    "attachments": {
+      "报告.pdf": "JVBERi0xLjcKCjEgMCBvYmo...",
+      "数据.xlsx": "UEsDBBQABgAIAAAAIQ...",
+      "图片.png": "iVBORw0KGgoAAAANSUhEUgAA..."
+    }
+  }'
+```
+
+**Base64 编码示例（Python）**
+
+```python
+import base64
+
+def file_to_base64(file_path):
+    with open(file_path, 'rb') as f:
+        return base64.b64encode(f.read()).decode('utf-8')
+
+# 使用
+attachments = {
+    "document.pdf": file_to_base64("document.pdf"),
+    "image.png": file_to_base64("image.png")
+}
+```
+
 **成功响应**
 ```json
 {
   "success": true,
   "message": "邮件发送请求已处理",
   "data": {
-    "emailId": "550e8400-e29b-41d4-a716-446655440000",
-    "status": "Sent",
-    "sentAt": "2025-11-12T10:30:00Z",
-    "recipientCount": 1
+    "emailId": "a1b2c3d4",
+    "status": 1,
+    "message": "邮件发送成功"
   },
-  "timestamp": "2025-11-12T10:30:00.123Z"
+  "requestId": "req12345",
+  "timestamp": "2025-09-22T14:30:00Z"
 }
 ```
 
@@ -98,13 +142,10 @@ curl -X POST https://notify.downf.cn/api/email/send \
 ```json
 {
   "success": false,
-  "message": "请求参数错误",
-  "errorCode": "InvalidParameter",
-  "errors": {
-    "subject": ["邮件主题不能为空"],
-    "emails": ["收件人邮箱格式不正确: invalid-email"]
-  },
-  "timestamp": "2025-11-12T10:30:00.123Z"
+  "message": "邮箱格式错误: invalid-email",
+  "data": null,
+  "requestId": "req12345",
+  "timestamp": "2025-09-22T14:30:00Z"
 }
 ```
 
@@ -135,23 +176,87 @@ curl -X GET https://notify.downf.cn/api/email/health \
   "message": "服务运行正常",
   "data": {
     "status": "Healthy",
-    "timestamp": "2025-11-12T10:30:00Z",
-    "version": "1.0.1-Secure",
-    "environment": "Production",
-    "components": {
-      "smtp": "Available",
-      "apiKeys": "1 keys loaded",
-      "mode": "Stateless",
-      "security": {
-        "queryParamApiKey": "Disabled",
-        "supportedMethods": [
-          "Authorization: Bearer {key}",
-          "X-API-Key: {key}"
-        ]
-      }
-    }
+    "timestamp": "2025-09-22T14:30:00Z",
+    "version": "1.0.0",
+    "environment": "Production"
   },
-  "timestamp": "2025-11-12T10:30:00.123Z"
+  "requestId": "req12345",
+  "timestamp": "2025-09-22T14:30:00Z"
+}
+```
+
+---
+
+### 3. 系统健康检查
+
+**接口地址**
+```
+GET /health
+```
+
+**说明**：检查整个系统健康状态，无需认证
+
+**请求示例**
+```bash
+curl -X GET https://notify.downf.cn/health
+```
+
+**响应示例**
+```json
+{
+  "status": "Healthy",
+  "totalDuration": "00:00:00.0123456",
+  "checks": [
+    {
+      "name": "smtp",
+      "status": "Healthy",
+      "description": "SMTP配置正常"
+    },
+    {
+      "name": "apikeys",
+      "status": "Healthy",
+      "description": "发现1个API密钥"
+    }
+  ]
+}
+```
+
+---
+
+### 4. 系统信息
+
+**接口地址**
+```
+GET /info
+```
+
+**说明**：获取系统信息和运行状态，无需认证
+
+**请求示例**
+```bash
+curl -X GET https://notify.downf.cn/info
+```
+
+**响应示例**
+```json
+{
+  "service": "NotifyHubAPI",
+  "version": "1.0.0 (Secure)",
+  "environment": "Production",
+  "timestamp": "2025-09-22T14:30:00Z",
+  "security": {
+    "httpsOnly": true,
+    "hostFiltering": true,
+    "rateLimiting": true,
+    "securityHeaders": true,
+    "requestValidation": true
+  },
+  "features": {
+    "emailSending": true,
+    "emailHistory": false,
+    "retryMechanism": false,
+    "persistence": false
+  }
 }
 ```
 
@@ -169,15 +274,26 @@ curl -X GET https://notify.downf.cn/api/email/health \
 
 ---
 
+## 速率限制
+
+| 规则 | 限制 |
+|------|------|
+| 所有端点 | 60次/分钟，1000次/小时 |
+| 邮件发送 | 30次/分钟 |
+| 本地IP | 200次/分钟 |
+
+---
+
 ## 错误码
 
 | 错误码 | 说明 |
 |--------|------|
+| ValidationError | 验证错误 |
 | InvalidParameter | 参数错误 |
 | Unauthorized | 认证失败 |
 | ConfigurationError | 服务配置错误 |
 | ExternalServiceError | 外部服务错误（如SMTP超时） |
-| InternalServerError | 服务器内部错误 |
+| ServerError | 服务器内部错误 |
 
 ---
 
@@ -295,8 +411,9 @@ echo $response;
    - 不支持在 URL 中传递 API 密钥
 
 2. **频率限制**
-   - 全局限制：1分钟20次，1小时200次
-   - 邮件发送：1分钟5次，1小时50次
+   - 所有端点：60次/分钟，1000次/小时
+   - 邮件发送：30次/分钟
+   - 本地IP：200次/分钟
    - 超出限制返回 429 状态码
 
 3. **收件人限制**
@@ -308,14 +425,11 @@ echo $response;
    - 邮件正文最大 50,000 字符
    - 分类标识最大 100 字符
 
-5. **附件支持**
-   - 附件需要 Base64 编码
-   - 建议单个附件不超过 5MB
-
-6. **重试机制**
-   - 系统内置自动重试（最多3次）
-   - 失败邮件会在5分钟后重试
-   - 建议客户端实现超时重试
+5. **附件说明**
+   - 支持常见文件类型：PDF、Office 文档、图片、压缩包、文本文件等
+   - 附件使用 Base64 编码传输
+   - 支持中文文件名（UTF-8 编码）
+   - 禁止可执行文件以确保安全
 
 ---
 
@@ -323,4 +437,4 @@ echo $response;
 
 如遇问题，请联系技术支持团队。
 
-**更新日期**：2025-11-12
+**更新日期**：2025-09-22

@@ -39,10 +39,10 @@
 
 ```bash
 # 上传应用
-scp -r D:\Programing\C#\NotifyHubAPI\NotifyHubAPI\bin\Release\net8.0\publish\* root@downf.cn:/var/www/notifyhub/
+scp -r D:\Programing\C#\NotifyHubAPI\NotifyHubAPI\bin\Release\net8.0\publish\* origami@downf.cn:/var/www/notifyhub/
 
 # 重启服务
-ssh root@downf.cn "sudo systemctl restart notifyhub"
+ssh origami@downf.cn "sudo systemctl restart notifyhub"
 ```
 
 ---
@@ -54,7 +54,7 @@ ssh root@downf.cn "sudo systemctl restart notifyhub"
 **文件**：`notifyhub.service`
 
 **关键配置**：
-- 运行用户：`nginx`
+- 运行用户：`origami`
 - 工作目录：`/var/www/notifyhub`
 - 监听地址：`http://localhost:5002`
 - 环境变量：包含API密钥和SMTP配置
@@ -87,7 +87,7 @@ ssh root@downf.cn "sudo systemctl restart notifyhub"
 | **应用目录** | /var/www/notifyhub |
 | **监听端口** | localhost:5002 |
 | **服务名** | notifyhub |
-| **运行用户** | nginx |
+| **运行用户** | origami |
 | **发布目录** | D:\Programing\C#\NotifyHubAPI\NotifyHubAPI\bin\Release\net8.0\publish |
 
 ---

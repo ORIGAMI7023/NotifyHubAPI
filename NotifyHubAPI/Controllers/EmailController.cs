@@ -77,6 +77,21 @@ namespace NotifyHubAPI.Controllers
                         errors));
                 }
 
+                // 附件快速验证
+                if (request.Attachments?.Any() == true)
+                {
+                    var attachmentErrors = ValidateAttachments(request);
+                    if (attachmentErrors.Any())
+                    {
+                        return BadRequest(StandardApiResponse<object>.CreateValidationError(
+                            "附件验证失败",
+                            new Dictionary<string, string[]>
+                            {
+                                ["attachments"] = attachmentErrors.ToArray()
+                            }));
+                    }
+                }
+
                 // 发送邮件
                 var result = await _emailService.SendEmailAsync(request, apiKey);
 
@@ -244,6 +259,62 @@ namespace NotifyHubAPI.Controllers
             if (totalRecipients > 100) // 可配置的限制
             {
                 errors.Add($"收件人总数不能超过100个，当前: {totalRecipients}");
+            }
+
+            return errors;
+        }
+
+        /// <summary>
+        /// 快速验证附件
+        /// </summary>
+        /// <param name="request">邮件请求</param>
+        /// <returns>验证错误列表</returns>
+        private List<string> ValidateAttachments(EmailRequest request)
+        {
+            var errors = new List<string>();
+
+            if (request.Attachments == null || !request.Attachments.Any())
+                return errors;
+
+            // 1. 检查附件数量
+            if (request.Attachments.Count > 5)
+            {
+                errors.Add($"附件数量超过限制（最多5个），当前: {request.Attachments.Count}");
+            }
+
+            // 2. 检查文件名
+            foreach (var (fileName, _) in request.Attachments)
+            {
+                if (string.IsNullOrWhiteSpace(fileName))
+                {
+                    errors.Add("文件名不能为空");
+                    continue;
+                }
+
+                // 检查文件扩展名
+                var extension = Path.GetExtension(fileName).ToLowerInvariant();
+                var blockedExtensions = new[] { ".exe", ".bat", ".cmd", ".com", ".pif", ".scr", ".vbs", ".js", ".jar" };
+                if (blockedExtensions.Contains(extension))
+                {
+                    errors.Add($"不允许的文件类型: {fileName} ({extension})");
+                }
+
+                // 检查文件名长度
+                if (fileName.Length > 255)
+                {
+                    errors.Add($"文件名过长（最多255字符）: {fileName.Substring(0, 50)}...");
+                }
+            }
+
+            // 3. 检查Base64内容非空
+            var emptyAttachments = request.Attachments
+                .Where(a => string.IsNullOrWhiteSpace(a.Value))
+                .Select(a => a.Key)
+                .ToList();
+
+            if (emptyAttachments.Any())
+            {
+                errors.Add($"以下附件内容为空: {string.Join(", ", emptyAttachments)}");
             }
 
             return errors;

@@ -8,16 +8,16 @@
 
 **文件：`NotifyHubAPI/appsettings.json`**
 - ✅ 更新 `Security:AllowedHosts` 域名
-  - `notify.origami7023.cn` → `notify.downf.cn`
-  - `www.notify.origami7023.cn` → `www.notify.downf.cn`
+  - 使用 `notify.downf.cn`
+  - 使用 `www.notify.downf.cn`
 
 **文件：`NotifyHubAPI/Program.cs` (第215行)**
 - ✅ 更新CORS默认域名
-  - `https://notify.origami7023.cn` → `https://notify.downf.cn`
+  - 使用 `https://notify.downf.cn`
 
 **文件：`NotifyHubAPI/Middleware/HostFilteringMiddleware.cs` (第26行)**
 - ✅ 更新默认允许主机
-  - `notify.origami7023.cn` → `notify.downf.cn`
+  - 使用 `notify.downf.cn`
 
 ---
 

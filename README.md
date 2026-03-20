@@ -123,22 +123,38 @@ X-API-Key: YOUR_API_KEY
 {
   "to": ["recipient@example.com"],
   "subject": "Test Email",
-  "bodyHtml": "<h1>Hello World</h1>",
-  "bodyText": "Hello World",
+  "body": "Hello World",
+  "category": "NOTIFICATION",
+  "isHtml": false,
+  "priority": 1,
   "cc": ["cc@example.com"],
-  "bcc": ["bcc@example.com"]
+  "bcc": ["bcc@example.com"],
+  "attachments": {
+    "document.pdf": "JVBERi0xLjcKCjEgMCBvYmo...",
+    "image.png": "iVBORw0KGgoAAAANSUhEUgAA..."
+  }
 }
 ```
+
+**Attachment Support**:
+- Maximum 5 attachments per email
+- Single file size limit: 5MB
+- Total size limit: 15MB
+- Base64 encoding required
+- Blocked file types: .exe, .bat, .cmd, .com, .pif, .scr, .vbs, .js, .jar
 
 **Response (Success):**
 ```json
 {
   "success": true,
-  "message": "邮件发送成功",
+  "message": "邮件发送请求已处理",
   "data": {
-    "emailId": "550e8400-e29b-41d4-a716-446655440000",
-    "timestamp": "2024-01-15T10:30:00Z"
-  }
+    "emailId": "a1b2c3d4",
+    "status": 1,
+    "message": "邮件发送成功"
+  },
+  "requestId": "req12345",
+  "timestamp": "2025-09-22T14:30:00Z"
 }
 ```
 
@@ -146,8 +162,10 @@ X-API-Key: YOUR_API_KEY
 ```json
 {
   "success": false,
-  "message": "邮件发送失败",
-  "error": "SMTP connection failed"
+  "message": "邮箱格式错误: invalid-email",
+  "data": null,
+  "requestId": "req12345",
+  "timestamp": "2025-09-22T14:30:00Z"
 }
 ```
 
@@ -242,9 +260,9 @@ sudo systemctl status notifyhub
 
 | Endpoint | Per Minute | Per Hour |
 |----------|------------|----------|
-| All endpoints | 20 | 200 |
-| `/api/email/send` | 5 | 50 |
-| Localhost | 100 | - |
+| All endpoints | 60 | 1000 |
+| `/api/email/send` | 30 | - |
+| Localhost | 200 | - |
 
 ## Development
 

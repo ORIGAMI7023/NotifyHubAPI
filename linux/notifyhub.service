@@ -12,7 +12,7 @@ ExecStart=/usr/bin/dotnet /var/www/notifyhub/NotifyHubAPI.dll
 Restart=always
 RestartSec=5
 SyslogIdentifier=notifyhub
-User=nginx
+User=origami
 Environment="ASPNETCORE_ENVIRONMENT=Production"
 Environment="ASPNETCORE_URLS=http://127.0.0.1:5002"
 Environment="DOTNET_PRINT_TELEMETRY_MESSAGE=false"
